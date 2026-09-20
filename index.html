@@ -25,12 +25,24 @@
     background:radial-gradient(ellipse at 50% 45%, #0d0d10 0%, #060607 55%, #000000 100%);}
   .fantasy-title{font-family:'Cinzel',serif;letter-spacing:2px;}
 
+  /* All in-game HUD lives inside this 1100x820 "stage", which JS keeps scaled
+     and positioned to exactly match the Phaser canvas's on-screen rect at all
+     times -- so the UI and the board move/scale together as one unit no
+     matter the window size or aspect ratio, instead of the UI being pinned
+     to the raw browser window edges while the board floats independently. */
+  #ui-stage{position:fixed;top:0;left:0;width:1100px;height:820px;transform-origin:top left;
+    pointer-events:none;z-index:10;}
+
   /* ---------- Top bar ---------- */
-  #top-bar{position:fixed;top:0;left:0;right:0;z-index:10;display:flex;justify-content:space-between;
-    align-items:center;padding:10px 22px;pointer-events:none;}
-  #logo{font-family:'Cinzel',serif;font-weight:700;font-size:22px;color:var(--gold);
+  /* Grid (not space-between) so the middle item is truly centered in the
+     bar regardless of how wide the logo vs. the button group are -- with
+     space-between, unequal flanking widths push the center item off-true. */
+  #top-bar{position:absolute;top:0;left:0;right:0;display:grid;
+    grid-template-columns:1fr auto 1fr;align-items:center;column-gap:16px;
+    padding:10px 22px;pointer-events:none;}
+  #logo{justify-self:start;font-family:'Cinzel',serif;font-weight:700;font-size:22px;color:var(--gold);
     text-shadow:0 0 12px rgba(232,201,116,0.6);letter-spacing:4px;pointer-events:auto;}
-  #turn-banner{pointer-events:auto;background:var(--panel-bg);border:1px solid var(--panel-brd);
+  #turn-banner{justify-self:center;pointer-events:auto;background:var(--panel-bg);border:1px solid var(--panel-brd);
     border-radius:10px;padding:8px 20px;display:flex;align-items:center;gap:12px;
     box-shadow:0 0 22px rgba(0,0,0,0.5);backdrop-filter:blur(3px);}
   #turn-dot{width:16px;height:16px;border-radius:50%;box-shadow:0 0 10px 2px currentColor;}
@@ -48,7 +60,7 @@
   #mute-btn:hover{background:rgba(232,201,116,0.18);}
 
   /* ---------- Mana trackers ---------- */
-  #mana-panel{position:fixed;top:64px;left:16px;z-index:10;display:flex;flex-direction:column;gap:8px;
+  #mana-panel{position:absolute;top:64px;left:16px;display:flex;flex-direction:column;gap:8px;
     pointer-events:none;}
   .mana-row{background:var(--panel-bg);border:1px solid var(--panel-brd);border-radius:8px;padding:7px 10px;
     min-width:190px;box-shadow:0 0 14px rgba(0,0,0,0.4);transition:box-shadow .3s, transform .3s;}
@@ -60,23 +72,20 @@
   .mana-bar-fill{height:100%;border-radius:5px;background:linear-gradient(90deg,var(--rowcolor),#fff6d8);
     box-shadow:0 0 8px var(--rowcolor);transition:width .4s;}
 
-  /* ---------- Bottom bar ---------- */
-  #bottom-bar{position:fixed;bottom:0;left:0;right:0;z-index:10;display:flex;justify-content:center;
-    align-items:flex-end;gap:14px;padding:10px 16px 14px;pointer-events:none;}
-  #log-panel{pointer-events:auto;background:var(--panel-bg);border:1px solid var(--panel-brd);border-radius:10px;
-    padding:8px 14px;width:380px;height:88px;overflow-y:auto;font-size:14px;line-height:1.35;
-    box-shadow:0 0 18px rgba(0,0,0,0.5);}
-  #log-panel div{opacity:0.92;margin:1px 0;}
-  #log-panel::-webkit-scrollbar{width:5px;}
-  #log-panel::-webkit-scrollbar-thumb{background:var(--gold-dim);border-radius:3px;}
-  #action-panel{pointer-events:auto;display:flex;flex-direction:column;gap:6px;align-items:center;}
+  /* ---------- Bottom bar ----------
+     One compact row: tile-info on the left, all action buttons in a row on
+     the right. No scrolling log -- keeping this to a single, short row is
+     what keeps it from ever overlapping the board on short windows. */
+  #bottom-bar{position:absolute;bottom:0;left:0;right:0;display:flex;justify-content:center;
+    align-items:center;gap:16px;padding:10px 16px 14px;pointer-events:none;}
+  #action-panel{pointer-events:auto;display:flex;flex-direction:row;gap:8px;align-items:center;}
   #tile-info{pointer-events:none;background:var(--panel-bg);border:1px solid var(--panel-brd);border-radius:10px;
-    padding:8px 14px;width:300px;height:88px;font-size:13.5px;line-height:1.4;overflow:hidden;
+    padding:8px 14px;width:320px;height:64px;font-size:13.5px;line-height:1.4;overflow:hidden;
     box-shadow:0 0 18px rgba(0,0,0,0.5);}
   #tile-info b{color:var(--gold);}
   .game-btn{font-family:'Cinzel',serif;font-size:13px;letter-spacing:.5px;color:#fff3d6;
     background:linear-gradient(180deg,#4a3a1e,#241a0d);border:1px solid var(--gold-dim);border-radius:7px;
-    padding:9px 18px;cursor:pointer;transition:all .15s;box-shadow:0 2px 6px rgba(0,0,0,0.5);white-space:nowrap;}
+    padding:9px 16px;cursor:pointer;transition:all .15s;box-shadow:0 2px 6px rgba(0,0,0,0.5);white-space:nowrap;}
   .game-btn:hover:not(:disabled){background:linear-gradient(180deg,#6b5228,#332510);box-shadow:0 0 14px rgba(232,201,116,0.5);}
   .game-btn:disabled{opacity:0.35;cursor:default;}
 
@@ -111,30 +120,31 @@
 <div id="game-container"></div>
 <div id="bg-vignette"></div>
 
-<div id="top-bar">
-  <div id="logo">MANA&nbsp;SURGE</div>
-  <div id="turn-banner">
-    <div id="turn-dot" style="color:#ff5757;background:#ff5757;"></div>
-    <div id="turn-text">Red's Turn</div>
-    <div id="phase-text">Start Phase</div>
-    <div id="ap-pips"></div>
+<div id="ui-stage">
+  <div id="top-bar">
+    <div id="logo">MANA&nbsp;SURGE</div>
+    <div id="turn-banner">
+      <div id="turn-dot" style="color:#ff5757;background:#ff5757;"></div>
+      <div id="turn-text">Red's Turn</div>
+      <div id="phase-text">Start Phase</div>
+      <div id="ap-pips"></div>
+    </div>
+    <div style="justify-self:end;display:flex;gap:10px;pointer-events:none;">
+      <button id="mute-btn" title="Toggle music">🔊</button>
+      <button id="help-btn" title="How to play">?</button>
+    </div>
   </div>
-  <div style="display:flex;gap:10px;pointer-events:none;">
-    <button id="mute-btn" title="Toggle music">🔊</button>
-    <button id="help-btn" title="How to play">?</button>
-  </div>
-</div>
 
-<div id="mana-panel"></div>
+  <div id="mana-panel"></div>
 
-<div id="bottom-bar">
-  <div id="tile-info"><b>Mana Surge</b><br>Hover a tile or unit to inspect it.</div>
-  <div id="action-panel">
-    <button class="game-btn" id="dagger-btn" style="display:none;">🗡️ Sacrifice (-3, +1 mana)</button>
-    <button class="game-btn" id="skip-btn" disabled>Skip Phase</button>
-    <button class="game-btn" id="restart-btn">Restart Match</button>
+  <div id="bottom-bar">
+    <div id="tile-info"><b>Mana Surge</b><br>Hover a tile or unit to inspect it.</div>
+    <div id="action-panel">
+      <button class="game-btn" id="dagger-btn" title="Sacrifice 3 troops for 1 mana" style="display:none;">🗡️ Sacrifice</button>
+      <button class="game-btn" id="skip-btn" disabled>Skip Phase</button>
+      <button class="game-btn" id="restart-btn">Restart</button>
+    </div>
   </div>
-  <div id="log-panel"></div>
 </div>
 
 <div id="hidden-start-overlay">
@@ -985,13 +995,11 @@ function updateHUD(){
 function setPhaseUI(pi, phase){
   document.getElementById('phase-text').textContent = phase;
 }
+// The on-screen scrolling log was removed to keep the bottom bar to a single
+// compact row (so it never overlaps the board on short windows). Game events
+// still go to the browser console for anyone who wants to follow along.
 function log(msg){
-  const panel = document.getElementById('log-panel');
-  const div = document.createElement('div');
-  div.innerHTML = msg;
-  panel.appendChild(div);
-  while(panel.children.length>60) panel.removeChild(panel.firstChild);
-  panel.scrollTop = panel.scrollHeight;
+  console.log(msg.replace(/<[^>]+>/g,''));
 }
 
 /* ---------------------------------------------------------------------
@@ -1467,7 +1475,7 @@ class MainScene extends Phaser.Scene {
   async create(){
     scene = this;
     boardCX = this.scale.width/2;
-    boardCY = this.scale.height/2 + 8;
+    boardCY = this.scale.height/2;
     const loadingMsg = this.add.text(boardCX, boardCY, 'Weaving the realm…', {
       fontFamily:'Georgia, serif', fontSize:'20px', color:'#e8c974'
     }).setOrigin(0.5).setDepth(100);
@@ -1496,6 +1504,7 @@ class MainScene extends Phaser.Scene {
       updateHUD();
       startBGM(this, this._loadedBGM); // begins now that actual play is starting
       currentPlayerIndex = 0;
+      syncUIStage(); // safety re-sync now that the canvas layout has fully settled
       gameLoop();
     }catch(e){
       console.error('Game setup failed:', e);
@@ -1521,6 +1530,24 @@ function boot(){
     scene: [MainScene]
   };
   phaserGame = new Phaser.Game(config);
+  // Keep the HTML HUD (#ui-stage) locked to wherever Phaser actually renders
+  // the canvas -- this is what makes the board and its UI move/scale as one
+  // unit on every window size, instead of the UI staying pinned to the raw
+  // browser edges while a letterboxed canvas floats independently.
+  phaserGame.events.once('ready', ()=>{
+    phaserGame.scale.on('resize', syncUIStage);
+    syncUIStage();
+  });
+  window.addEventListener('resize', syncUIStage);
+}
+function syncUIStage(){
+  if(!phaserGame || !phaserGame.canvas) return;
+  const rect = phaserGame.canvas.getBoundingClientRect();
+  if(rect.width===0 || rect.height===0) return;
+  const stage = document.getElementById('ui-stage');
+  stage.style.left = rect.left+'px';
+  stage.style.top = rect.top+'px';
+  stage.style.transform = `scale(${rect.width/1100})`;
 }
 
 document.getElementById('start-btn').addEventListener('click', ()=>{
