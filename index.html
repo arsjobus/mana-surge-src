@@ -113,6 +113,15 @@
   #hidden-start-overlay h1{font-family:'Cinzel',serif;font-size:52px;color:var(--gold);letter-spacing:10px;
     text-shadow:0 0 30px rgba(232,201,116,0.7);margin:0;}
   #hidden-start-overlay p{color:#cfc2e8;font-size:18px;max-width:520px;text-align:center;}
+  #difficulty-label{color:var(--gold);font-family:'Cinzel',serif;font-size:13px;letter-spacing:2px;
+    text-transform:uppercase;margin-top:6px;opacity:0.85;}
+  #difficulty-row{display:flex;gap:10px;}
+  .diff-btn{font-family:'Cinzel',serif;font-size:14px;letter-spacing:.5px;color:#cfc2e8;
+    background:rgba(20,14,36,0.7);border:1px solid var(--panel-brd);border-radius:8px;
+    padding:9px 22px;cursor:pointer;transition:all .15s;}
+  .diff-btn:hover{background:rgba(232,201,116,0.12);}
+  .diff-btn.selected{color:#1a1206;background:linear-gradient(180deg,var(--gold),#b99a3f);
+    border-color:var(--gold);box-shadow:0 0 16px rgba(232,201,116,0.6);font-weight:600;}
 </style>
 </head>
 <body>
@@ -151,6 +160,12 @@
   <h1>MANA SURGE</h1>
   <p>Command the Red clan against two rival AI factions. Spawn troops, seize combat shrines, and hold the
      Mana Pool at the center of the realm to be the first to gather <b>10 mana points</b>.</p>
+  <div id="difficulty-label">Choose Your Challenge</div>
+  <div id="difficulty-row">
+    <button class="diff-btn" data-diff="easy">Easy</button>
+    <button class="diff-btn selected" data-diff="medium">Medium</button>
+    <button class="diff-btn" data-diff="hard">Hard</button>
+  </div>
   <button class="game-btn" id="start-btn" style="font-size:16px;padding:12px 30px;">Begin the Surge</button>
   <button class="game-btn" id="rules-btn" style="padding:8px 20px;">How to Play</button>
 </div>
@@ -287,6 +302,19 @@ let currentPlayerIndex = 0;
 let gameOver = false;
 let scene = null;
 let bgmSound = null;
+
+// Difficulty is chosen on the start screen and locked in for the match.
+// For now the one lever that changes is "mistake chance": the probability
+// that a CPU, when it's about to act, picks a random legal option instead
+// of the one its scoring functions ranked best -- so Easy plays like a
+// distracted opponent that still knows the rules, while Hard is the fully
+// optimized AI with (almost) zero patience for a bad play.
+let difficulty = 'medium';
+const DIFFICULTY = {
+  easy:   { mistakeChance: 0.35 },
+  medium: { mistakeChance: 0.08 },
+  hard:   { mistakeChance: 0 }
+};
 let boardCX = 0, boardCY = 0;
 let pending = null; // {kind, pi, resolve, selected, options}
 let highlightSprites = [];
@@ -1390,16 +1418,24 @@ function scoreMoveTarget(troop, target, pi){
 }
 function cpuChooseMove(pi){
   let best=null, bestScore=2; // threshold: don't move without benefit
+  const candidates = [];
   troops.filter(t=>t.owner===pi && !isLocked(t)).forEach(troop=>{
     neighbors(troop.q,troop.r).filter(n=>tiles.has(key(n.q,n.r)) && isEmptyTile(n)).forEach(target=>{
       const s = scoreMoveTarget(troop, target, pi);
+      candidates.push({troop,target,score:s});
       if(s>bestScore){ bestScore=s; best={troop,target,score:s}; }
     });
   });
+  if(candidates.length===0) return null;
+  // Difficulty: a chance to pick a random legal move instead of the best one.
+  if(Math.random() < DIFFICULTY[difficulty].mistakeChance){
+    return candidates[Math.floor(Math.random()*candidates.length)];
+  }
   return best;
 }
 function cpuChooseAttack(pi){
   let best=null, bestScore=0;
+  const candidates = [];
   troops.filter(t=>t.owner===pi && !isLocked(t)).forEach(troop=>{
     const aS = getStats(troop);
     neighbors(troop.q,troop.r).forEach(nb=>{
@@ -1421,10 +1457,16 @@ function cpuChooseAttack(pi){
         else if(iKill && iDie) score = 35 + highValue + pressureBonus; // mutual trade — worth it to deny value tiles / pressure the human
         else if(!iKill && !iDie) score = -10;                          // pointless bump, waste of an action point
         else score = -60 + highValue*0.5 + pressureBonus*0.5;          // I'd die for nothing, unless it's very high value
+        candidates.push({attacker:troop, defender:enemy, score});
         if(score>bestScore){ bestScore=score; best={attacker:troop, defender:enemy, score}; }
       }
     });
   });
+  if(candidates.length===0) return null;
+  // Difficulty: a chance to pick a random legal attack instead of the best one.
+  if(Math.random() < DIFFICULTY[difficulty].mistakeChance){
+    return candidates[Math.floor(Math.random()*candidates.length)];
+  }
   return best;
 }
 
@@ -1550,6 +1592,12 @@ function syncUIStage(){
   stage.style.transform = `scale(${rect.width/1100})`;
 }
 
+document.querySelectorAll('.diff-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    difficulty = btn.dataset.diff;
+    document.querySelectorAll('.diff-btn').forEach(b=>b.classList.toggle('selected', b===btn));
+  });
+});
 document.getElementById('start-btn').addEventListener('click', ()=>{
   document.getElementById('hidden-start-overlay').style.display='none';
   boot();
