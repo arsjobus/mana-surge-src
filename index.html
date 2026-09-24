@@ -93,8 +93,8 @@
   .modal-overlay{position:fixed;inset:0;background:rgba(3,2,10,0.82);z-index:70;display:flex;
     align-items:center;justify-content:center;}
   .modal-box{background:linear-gradient(180deg,#1c1330,#0c0818);border:1px solid var(--panel-brd);
-    border-radius:16px;padding:30px 34px;max-width:560px;width:90%;max-height:82vh;overflow-y:auto;
-    box-shadow:0 0 60px rgba(232,201,116,0.25);}
+    border-radius:16px;padding:clamp(16px,4vmin,30px) clamp(16px,4.5vmin,34px);max-width:560px;width:90%;
+    max-height:82vh;overflow-y:auto;box-shadow:0 0 60px rgba(232,201,116,0.25);}
   .modal-shell{position:relative;max-width:560px;width:90%;}
   .modal-shell .modal-box{width:100%;}
   .modal-close-x{position:absolute;top:-14px;right:-14px;width:36px;height:36px;border-radius:50%;
@@ -102,26 +102,43 @@
     font-size:22px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;
     z-index:10;box-shadow:0 2px 10px rgba(0,0,0,0.6);transition:all .15s;}
   .modal-close-x:hover{background:rgba(232,201,116,0.25);transform:scale(1.08);}
-  .modal-box h2{font-family:'Cinzel',serif;color:var(--gold);text-align:center;margin-top:0;letter-spacing:2px;}
-  .modal-box h3{font-family:'Cinzel',serif;color:var(--gold);font-size:15px;margin:16px 0 6px;}
-  .modal-box p, .modal-box li{font-size:15.5px;line-height:1.5;}
+  .modal-box h2{font-family:'Cinzel',serif;color:var(--gold);text-align:center;margin-top:0;letter-spacing:2px;
+    font-size:clamp(18px,4.5vmin,24px);}
+  .modal-box h3{font-family:'Cinzel',serif;color:var(--gold);font-size:clamp(13px,3vmin,15px);margin:16px 0 6px;}
+  .modal-box p, .modal-box li{font-size:clamp(13px,3vmin,15.5px);line-height:1.5;}
   .modal-box .legend{display:flex;align-items:center;gap:10px;margin:6px 0;}
   .legend .sw{width:22px;height:22px;border-radius:5px;flex:none;}
   .modal-box .btn-row{display:flex;justify-content:center;gap:12px;margin-top:20px;}
   #hidden-start-overlay{position:fixed;inset:0;background:radial-gradient(ellipse at center,#221a3d 0%,#050310 80%);
-    z-index:60;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;}
-  #hidden-start-overlay h1{font-family:'Cinzel',serif;font-size:52px;color:var(--gold);letter-spacing:10px;
-    text-shadow:0 0 30px rgba(232,201,116,0.7);margin:0;}
-  #hidden-start-overlay p{color:#cfc2e8;font-size:18px;max-width:520px;text-align:center;}
-  #difficulty-label{color:var(--gold);font-family:'Cinzel',serif;font-size:13px;letter-spacing:2px;
-    text-transform:uppercase;margin-top:6px;opacity:0.85;}
-  #difficulty-row{display:flex;gap:10px;}
-  .diff-btn{font-family:'Cinzel',serif;font-size:14px;letter-spacing:.5px;color:#cfc2e8;
+    z-index:60;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:clamp(6px,2.2vmin,18px);padding:clamp(10px,3vmin,30px) 16px;overflow-y:auto;}
+  #hidden-start-overlay h1{font-family:'Cinzel',serif;font-size:clamp(24px,8vmin,52px);color:var(--gold);
+    letter-spacing:clamp(3px,1.8vmin,10px);text-shadow:0 0 30px rgba(232,201,116,0.7);margin:0;text-align:center;}
+  #hidden-start-overlay p{color:#cfc2e8;font-size:clamp(12px,3.2vmin,18px);max-width:min(520px,88vw);
+    text-align:center;line-height:1.4;margin:0;}
+  /* Scoped to the start screen only -- the in-game buttons that share
+     .game-btn already scale correctly via #ui-stage's transform, and must
+     NOT also get viewport-relative sizing here or they'd double-scale. */
+  #hidden-start-overlay .game-btn{font-size:clamp(12px,2.8vmin,16px);
+    padding:clamp(7px,2vmin,12px) clamp(14px,5vmin,30px);}
+  #hidden-start-overlay .game-btn.primary{font-size:clamp(13px,3.2vmin,18px);
+    padding:clamp(9px,2.4vmin,14px) clamp(18px,6vmin,34px);}
+  #difficulty-label{color:var(--gold);font-family:'Cinzel',serif;font-size:clamp(10px,2.4vmin,13px);
+    letter-spacing:2px;text-transform:uppercase;opacity:0.85;}
+  #difficulty-row{display:flex;gap:clamp(6px,1.6vmin,10px);flex-wrap:wrap;justify-content:center;}
+  .pill-btn{font-family:'Cinzel',serif;font-size:clamp(11px,2.6vmin,14px);letter-spacing:.5px;color:#cfc2e8;
     background:rgba(20,14,36,0.7);border:1px solid var(--panel-brd);border-radius:8px;
-    padding:9px 22px;cursor:pointer;transition:all .15s;}
-  .diff-btn:hover{background:rgba(232,201,116,0.12);}
-  .diff-btn.selected{color:#1a1206;background:linear-gradient(180deg,var(--gold),#b99a3f);
+    width:clamp(66px,16vmin,100px);padding:clamp(6px,1.8vmin,9px) 0;
+    display:inline-flex;align-items:center;justify-content:center;
+    cursor:pointer;transition:all .15s;}
+  .pill-btn:hover{background:rgba(232,201,116,0.12);}
+  .pill-btn.selected{color:#1a1206;background:linear-gradient(180deg,var(--gold),#b99a3f);
     border-color:var(--gold);box-shadow:0 0 16px rgba(232,201,116,0.6);font-weight:600;}
+  .jewel{display:inline-block;flex:none;width:clamp(8px,2.2vmin,14px);height:clamp(8px,2.2vmin,14px);
+    border-radius:50%;margin-right:clamp(4px,1.4vmin,8px);border:2px solid #e8c974;
+    background:radial-gradient(circle at 35% 28%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.15) 32%, var(--jewelcolor) 55%, var(--jewelcolor) 100%);
+    box-shadow:0 0 6px var(--jewelcolor), inset 0 0 3px rgba(0,0,0,0.5);}
+  #winscore-slider{width:min(280px,60vmin);accent-color:var(--gold);cursor:pointer;height:20px;}
 </style>
 </head>
 <body>
@@ -158,16 +175,24 @@
 
 <div id="hidden-start-overlay">
   <h1>MANA SURGE</h1>
-  <p>Command the Red clan against two rival AI factions. Spawn troops, seize combat shrines, and hold the
-     Mana Pool at the center of the realm to be the first to gather <b>10 mana points</b>.</p>
+  <p>Command your clan against two rival AI factions. Spawn troops, seize combat shrines, and hold the
+     Mana Pool at the center of the realm to be the first to gather <b><span id="intro-winscore">10</span> mana points</b>.</p>
+  <div id="difficulty-label">Choose Your Clan</div>
+  <div id="difficulty-row">
+    <button class="pill-btn color-btn selected" data-color="0"><span class="jewel" style="--jewelcolor:#ff5757;"></span>Red</button>
+    <button class="pill-btn color-btn" data-color="1"><span class="jewel" style="--jewelcolor:#5aa9ff;"></span>Blue</button>
+    <button class="pill-btn color-btn" data-color="2"><span class="jewel" style="--jewelcolor:#4fe08a;"></span>Green</button>
+  </div>
   <div id="difficulty-label">Choose Your Challenge</div>
   <div id="difficulty-row">
-    <button class="diff-btn" data-diff="easy">Easy</button>
-    <button class="diff-btn selected" data-diff="medium">Medium</button>
-    <button class="diff-btn" data-diff="hard">Hard</button>
+    <button class="pill-btn diff-btn" data-diff="easy">Easy</button>
+    <button class="pill-btn diff-btn selected" data-diff="medium">Medium</button>
+    <button class="pill-btn diff-btn" data-diff="hard">Hard</button>
   </div>
-  <button class="game-btn" id="start-btn" style="font-size:16px;padding:12px 30px;">Begin the Surge</button>
-  <button class="game-btn" id="rules-btn" style="padding:8px 20px;">How to Play</button>
+  <div id="difficulty-label">Victory Threshold: <span id="winscore-value">10</span> Mana</div>
+  <input type="range" id="winscore-slider" min="10" max="50" step="10" value="10">
+  <button class="game-btn primary" id="start-btn">Begin the Surge</button>
+  <button class="game-btn" id="rules-btn">How to Play</button>
 </div>
 
 <div class="modal-overlay" id="help-modal" style="display:none;">
@@ -175,7 +200,7 @@
     <button class="modal-close-x" id="close-help-x" aria-label="Close">&times;</button>
     <div class="modal-box">
     <h2>How to Play Mana Surge</h2>
-    <p>Be the first to collect <b>10 mana points</b> from the glowing Mana Pool at the center of the board.</p>
+    <p>Be the first to collect <b><span id="help-winscore">10</span> mana points</b> from the glowing Mana Pool at the center of the board.</p>
     <h3>Turn Structure</h3>
     <p><b>Start</b> — your action points refresh (1, plus bonuses) and your spawner places new troop(s) on an
        adjacent empty tile.<br>
@@ -315,6 +340,21 @@ const DIFFICULTY = {
   medium: { mistakeChance: 0.08 },
   hard:   { mistakeChance: 0 }
 };
+
+// Victory threshold, chosen on the start screen via the slider (10/20/30/40/50).
+let winScore = 10;
+
+// Which color the human plays as (0=Red, 1=Blue, 2=Green). The board itself
+// is fixed -- Red's spawner is always the left corner, Blue upper-right,
+// Green bottom -- so this just decides which of those three seats the human
+// sits in; the other two are always CPU-controlled, and turn order still
+// goes clockwise Red -> Blue -> Green regardless of which one is human.
+let humanColorIndex = 0;
+const COLOR_META = [
+  {name:'Red',   colorHex:0xff5757},
+  {name:'Blue',  colorHex:0x5aa9ff},
+  {name:'Green', colorHex:0x4fe08a},
+];
 let boardCX = 0, boardCY = 0;
 let pending = null; // {kind, pi, resolve, selected, options}
 let highlightSprites = [];
@@ -995,7 +1035,7 @@ function buildManaPanel(){
     row.className='mana-row';
     row.id='mana-row-'+i;
     row.style.setProperty('--rowcolor', cssColor(p.colorHex));
-    row.innerHTML = `<div class="mr-top"><span class="mr-name">${p.name}</span><span class="mr-count">0 / 10</span></div>
+    row.innerHTML = `<div class="mr-top"><span class="mr-name">${p.name}</span><span class="mr-count">0 / ${winScore}</span></div>
       <div class="mana-bar-bg"><div class="mana-bar-fill" style="width:0%"></div></div>`;
     panel.appendChild(row);
   });
@@ -1004,8 +1044,8 @@ function updateHUD(){
   players.forEach((p,i)=>{
     const row = document.getElementById('mana-row-'+i);
     row.classList.toggle('active', i===currentPlayerIndex);
-    row.querySelector('.mr-count').textContent = `${p.mana} / 10`;
-    row.querySelector('.mana-bar-fill').style.width = (p.mana*10)+'%';
+    row.querySelector('.mr-count').textContent = `${p.mana} / ${winScore}`;
+    row.querySelector('.mana-bar-fill').style.width = (p.mana/winScore*100)+'%';
   });
   const p = players[currentPlayerIndex];
   document.getElementById('turn-text').textContent = p.name+"'s Turn";
@@ -1104,7 +1144,7 @@ async function performSacrifice(pi){
   const px = axialToPixel(0,0,HEX_SIZE);
   burst(boardX(px.x), boardY(px.y), 0xc9b8ff, 24);
   updateHUD();
-  if(p.mana>=10){ gameOver=true; showVictory(pi); }
+  if(p.mana>=winScore){ gameOver=true; showVictory(pi); }
   return true;
 }
 
@@ -1311,7 +1351,7 @@ async function endPhase(pi){
       const px = axialToPixel(0,0,HEX_SIZE);
       burst(boardX(px.x), boardY(px.y), 0xffd76a, 30);
       updateHUD();
-      if(p.mana>=10){ gameOver=true; showVictory(pi); }
+      if(p.mana>=winScore){ gameOver=true; showVictory(pi); }
     }
   }
 }
@@ -1501,7 +1541,7 @@ function showVictory(pi){
   document.getElementById('skip-btn').disabled = true;
   document.getElementById('victory-title').textContent = players[pi].human ? 'Victory!' : 'Defeat...';
   document.getElementById('victory-title').style.color = cssColor(players[pi].colorHex);
-  document.getElementById('victory-text').innerHTML = `${coloredName(pi)} has gathered <b>10 mana points</b> and won the Surge!`;
+  document.getElementById('victory-text').innerHTML = `${coloredName(pi)} has gathered <b>${winScore} mana points</b> and won the Surge!`;
   document.getElementById('victory-modal').style.display='flex';
   const px = axialToPixel(0,0,HEX_SIZE);
   for(let i=0;i<5;i++){
@@ -1532,11 +1572,7 @@ class MainScene extends Phaser.Scene {
     }
     loadingMsg.destroy();
 
-    players = [
-      {name:'Red',   human:true,  colorHex:0xff5757, mana:0, actionPoints:1},
-      {name:'Blue',  human:false, colorHex:0x5aa9ff, mana:0, actionPoints:1},
-      {name:'Green', human:false, colorHex:0x4fe08a, mana:0, actionPoints:1},
-    ];
+    players = COLOR_META.map((c,i)=>({...c, human:i===humanColorIndex, mana:0, actionPoints:1}));
     try{
       buildBoard();
       renderBoard();
@@ -1568,7 +1604,7 @@ function boot(){
     height: 820,
     parent: 'game-container',
     transparent: true,
-    scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+    scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.NO_CENTER },
     scene: [MainScene]
   };
   phaserGame = new Phaser.Game(config);
@@ -1581,6 +1617,12 @@ function boot(){
     syncUIStage();
   });
   window.addEventListener('resize', syncUIStage);
+  // Extra robustness: catch layout changes that don't fire a window resize
+  // event at all (devtools panel toggling, some mobile browser chrome
+  // changes, etc.) by watching the container's actual box directly.
+  if(window.ResizeObserver){
+    new ResizeObserver(()=>syncUIStage()).observe(document.getElementById('game-container'));
+  }
 }
 function syncUIStage(){
   if(!phaserGame || !phaserGame.canvas) return;
@@ -1592,11 +1634,23 @@ function syncUIStage(){
   stage.style.transform = `scale(${rect.width/1100})`;
 }
 
+document.querySelectorAll('.color-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    humanColorIndex = parseInt(btn.dataset.color, 10);
+    document.querySelectorAll('.color-btn').forEach(b=>b.classList.toggle('selected', b===btn));
+  });
+});
 document.querySelectorAll('.diff-btn').forEach(btn=>{
   btn.addEventListener('click', ()=>{
     difficulty = btn.dataset.diff;
     document.querySelectorAll('.diff-btn').forEach(b=>b.classList.toggle('selected', b===btn));
   });
+});
+document.getElementById('winscore-slider').addEventListener('input', (e)=>{
+  winScore = parseInt(e.target.value, 10);
+  document.getElementById('winscore-value').textContent = winScore;
+  document.getElementById('intro-winscore').textContent = winScore;
+  document.getElementById('help-winscore').textContent = winScore;
 });
 document.getElementById('start-btn').addEventListener('click', ()=>{
   document.getElementById('hidden-start-overlay').style.display='none';
@@ -1606,6 +1660,7 @@ function openHelpModal(){
   const modal = document.getElementById('help-modal');
   modal.style.display='flex';
   modal.querySelector('.modal-box').scrollTop = 0;
+  document.getElementById('help-winscore').textContent = winScore;
 }
 document.getElementById('rules-btn').addEventListener('click', openHelpModal);
 document.getElementById('help-btn').addEventListener('click', openHelpModal);
