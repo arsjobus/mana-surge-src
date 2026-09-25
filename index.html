@@ -108,6 +108,14 @@
   .modal-box p, .modal-box li{font-size:clamp(13px,3vmin,15.5px);line-height:1.5;}
   .modal-box .legend{display:flex;align-items:center;gap:10px;margin:6px 0;}
   .legend .sw{width:22px;height:22px;border-radius:5px;flex:none;}
+  .credit-row{display:flex;justify-content:space-between;align-items:baseline;gap:14px;
+    padding:9px 0;border-bottom:1px solid var(--panel-brd);}
+  .credit-row:last-child{border-bottom:none;}
+  .credit-role{color:var(--gold);font-family:'Cinzel',serif;font-size:clamp(12px,2.8vmin,14px);letter-spacing:0.5px;}
+  .credit-name{color:#e8e6f0;font-size:clamp(13px,3vmin,15px);text-align:right;}
+  #credits-btn{position:absolute;right:18px;bottom:16px;font-size:clamp(11px,2.4vmin,13px);
+    padding:7px 14px;opacity:0.85;}
+  #credits-btn:hover{opacity:1;}
   .modal-box .btn-row{display:flex;justify-content:center;gap:12px;margin-top:20px;}
   #hidden-start-overlay{position:fixed;inset:0;background:radial-gradient(ellipse at center,#221a3d 0%,#050310 80%);
     z-index:60;display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -193,6 +201,7 @@
   <input type="range" id="winscore-slider" min="10" max="50" step="10" value="10">
   <button class="game-btn primary" id="start-btn">Begin the Surge</button>
   <button class="game-btn" id="rules-btn">How to Play</button>
+  <button class="game-btn" id="credits-btn">Credits</button>
 </div>
 
 <div class="modal-overlay" id="help-modal" style="display:none;">
@@ -229,6 +238,17 @@
        <b>locked</b>: they cannot move or attack while there (but can still be attacked). The Sacrificial Dagger
        does not lock its occupant.</p>
     <div class="btn-row"><button class="game-btn" id="close-help">Close</button></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="credits-modal" style="display:none;">
+  <div class="modal-shell">
+    <button class="modal-close-x" id="close-credits-x" aria-label="Close">&times;</button>
+    <div class="modal-box">
+    <h2>Credits</h2>
+    <div id="credits-list"></div>
+    <div class="btn-row"><button class="game-btn" id="close-credits">Close</button></div>
     </div>
   </div>
 </div>
@@ -1669,6 +1689,33 @@ document.getElementById('close-help').addEventListener('click', ()=>{
 });
 document.getElementById('close-help-x').addEventListener('click', ()=>{
   document.getElementById('help-modal').style.display='none';
+});
+
+/* ---------------------------------------------------------------------
+   Credits — easy to maintain/extend: just add {role, name} entries below
+--------------------------------------------------------------------- */
+const CREDITS = [
+  { role: "Design, Code & Art", name: "Alexander Shepherd" }
+];
+
+function renderCredits(){
+  const list = document.getElementById('credits-list');
+  list.innerHTML = CREDITS.map(c =>
+    `<div class="credit-row"><span class="credit-role">${c.role}</span><span class="credit-name">${c.name}</span></div>`
+  ).join('');
+}
+function openCreditsModal(){
+  renderCredits();
+  const modal = document.getElementById('credits-modal');
+  modal.style.display='flex';
+  modal.querySelector('.modal-box').scrollTop = 0;
+}
+document.getElementById('credits-btn').addEventListener('click', openCreditsModal);
+document.getElementById('close-credits').addEventListener('click', ()=>{
+  document.getElementById('credits-modal').style.display='none';
+});
+document.getElementById('close-credits-x').addEventListener('click', ()=>{
+  document.getElementById('credits-modal').style.display='none';
 });
 document.getElementById('skip-btn').addEventListener('click', ()=>{
   if(pending && (pending.kind==='move' || pending.kind==='attack')){
