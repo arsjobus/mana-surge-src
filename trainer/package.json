@@ -1,0 +1,13 @@
+{
+  "name": "mana-surge-trainer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Headless self-play trainer that evolves Mana Surge's CPU behavior-tree weights, then calibrates Easy/Medium/Hard from the result.",
+  "main": "train.js",
+  "scripts": {
+    "train": "node train.js",
+    "calibrate": "node calibrate.js weights/evolved.json",
+    "test": "node test-engine.js"
+  },
+  "license": "UNLICENSED"
+}

@@ -349,17 +349,107 @@ let scene = null;
 let bgmSound = null;
 
 // Difficulty is chosen on the start screen and locked in for the match.
-// For now the one lever that changes is "mistake chance": the probability
-// that a CPU, when it's about to act, picks a random legal option instead
-// of the one its scoring functions ranked best -- so Easy plays like a
-// distracted opponent that still knows the rules, while Hard is the fully
-// optimized AI with (almost) zero patience for a bad play.
+// Each tier is a full weight set for the CPU behavior tree below (see
+// scoreMoveTarget / cpuChooseAttack / cpuShouldUseDagger), not just a
+// mistake-chance dial. These three presets were produced by a companion
+// self-play training program (see /trainer in the project folder):
+// a genetic algorithm evolved the "hard" weights by playing thousands of
+// 3-way CPU-vs-CPU matches and rewarding wins, then a calibration pass
+// found the mistakeChance value for "medium" and "easy" that makes each
+// one win a target fraction of its matches against "hard". Regenerate
+// these by running `node train.js && node calibrate.js weights/evolved.json`
+// in that folder and pasting the resulting JSON back in here.
 let difficulty = 'medium';
-const DIFFICULTY = {
-  easy:   { mistakeChance: 0.35 },
-  medium: { mistakeChance: 0.08 },
-  hard:   { mistakeChance: 0 }
+const WEIGHT_PRESETS = {
+  easy: {
+  "centerPull": 7.945899534877389,
+  "manaPool": 60.49468324081972,
+  "extraAction": 56.61557759009301,
+  "extraSpawn": 55.215525715518744,
+  "dagger": 27.16596094192937,
+  "atkPlus": 30.896117851603776,
+  "defPlus": 11.446269826963544,
+  "atkMinus": -18.369276833487675,
+  "thorns": -455.66988643445075,
+  "huntNearestEnemy": 5.867035050690174,
+  "setupHighValueAttack": 42.94750894717872,
+  "genericRisk": -27.92651757095009,
+  "manaAdjacencyRush": 61.2782610390801,
+  "freeKillBase": 107.65630460605026,
+  "mutualTradeBase": 28.330165735213093,
+  "pointlessBump": -16.925761812739076,
+  "loseForNothingBase": -77.14478653799743,
+  "highValueMana": 39.82683247160166,
+  "highValueLocking": 27.22804987332784,
+  "pressureLeader": 19.630770722124726,
+  "isolatedBonus": 7.391392231732607,
+  "loseForNothingHighValueMult": 0.4537641365593299,
+  "loseForNothingPressureMult": 0.6342401169845833,
+  "daggerSurplusThreshold": 10.408438848475926,
+  "daggerClosingManaThreshold": 7.526514231809415,
+  "daggerClosingTroopThreshold": 4.096023944513872,
+  "mistakeChance": 0.22529296875
+},
+  medium: {
+  "centerPull": 7.945899534877389,
+  "manaPool": 60.49468324081972,
+  "extraAction": 56.61557759009301,
+  "extraSpawn": 55.215525715518744,
+  "dagger": 27.16596094192937,
+  "atkPlus": 30.896117851603776,
+  "defPlus": 11.446269826963544,
+  "atkMinus": -18.369276833487675,
+  "thorns": -455.66988643445075,
+  "huntNearestEnemy": 5.867035050690174,
+  "setupHighValueAttack": 42.94750894717872,
+  "genericRisk": -27.92651757095009,
+  "manaAdjacencyRush": 61.2782610390801,
+  "freeKillBase": 107.65630460605026,
+  "mutualTradeBase": 28.330165735213093,
+  "pointlessBump": -16.925761812739076,
+  "loseForNothingBase": -77.14478653799743,
+  "highValueMana": 39.82683247160166,
+  "highValueLocking": 27.22804987332784,
+  "pressureLeader": 19.630770722124726,
+  "isolatedBonus": 7.391392231732607,
+  "loseForNothingHighValueMult": 0.4537641365593299,
+  "loseForNothingPressureMult": 0.6342401169845833,
+  "daggerSurplusThreshold": 10.408438848475926,
+  "daggerClosingManaThreshold": 7.526514231809415,
+  "daggerClosingTroopThreshold": 4.096023944513872,
+  "mistakeChance": 0.09228515625
+},
+  hard: {
+  "centerPull": 7.945899534877389,
+  "manaPool": 60.49468324081972,
+  "extraAction": 56.61557759009301,
+  "extraSpawn": 55.215525715518744,
+  "dagger": 27.16596094192937,
+  "atkPlus": 30.896117851603776,
+  "defPlus": 11.446269826963544,
+  "atkMinus": -18.369276833487675,
+  "thorns": -455.66988643445075,
+  "huntNearestEnemy": 5.867035050690174,
+  "setupHighValueAttack": 42.94750894717872,
+  "genericRisk": -27.92651757095009,
+  "manaAdjacencyRush": 61.2782610390801,
+  "freeKillBase": 107.65630460605026,
+  "mutualTradeBase": 28.330165735213093,
+  "pointlessBump": -16.925761812739076,
+  "loseForNothingBase": -77.14478653799743,
+  "highValueMana": 39.82683247160166,
+  "highValueLocking": 27.22804987332784,
+  "pressureLeader": 19.630770722124726,
+  "isolatedBonus": 7.391392231732607,
+  "loseForNothingHighValueMult": 0.4537641365593299,
+  "loseForNothingPressureMult": 0.6342401169845833,
+  "daggerSurplusThreshold": 10.408438848475926,
+  "daggerClosingManaThreshold": 7.526514231809415,
+  "daggerClosingTroopThreshold": 4.096023944513872,
+  "mistakeChance": 0
+}
 };
+function AIW(){ return WEIGHT_PRESETS[difficulty]; }
 
 // Victory threshold, chosen on the start screen via the slider (10/20/30/40/50).
 let winScore = 10;
@@ -966,10 +1056,11 @@ function daggerAvailable(pi){
 // move, not an early priority: only reach for it once it has a healthy troop
 // surplus to spare, or as a genuine closing push when already near victory.
 function cpuShouldUseDagger(pi){
+  const w = AIW();
   const p = players[pi];
   const myTroopCount = troops.filter(t=>t.owner===pi).length;
-  const hasSurplus = myTroopCount >= 9;           // plenty of troops to spare
-  const closingPush = p.mana >= 7 && myTroopCount >= 5; // near-victory finishing move
+  const hasSurplus = myTroopCount >= w.daggerSurplusThreshold;              // plenty of troops to spare
+  const closingPush = p.mana >= w.daggerClosingManaThreshold && myTroopCount >= w.daggerClosingTroopThreshold; // near-victory finishing move
   return hasSurplus || closingPush;
 }
 
@@ -1421,19 +1512,20 @@ function isIsolated(troop){
   });
 }
 function scoreMoveTarget(troop, target, pi){
+  const w = AIW();
   const tile = getTile(target.q, target.r);
   let score=0;
   const curDist = hexDistance(troop, {q:0,r:0});
   const newDist = hexDistance(target, {q:0,r:0});
-  score += (curDist-newDist)*6;
-  if(tile.type==='mana_pool') score += 130;
-  if(tile.type==='extra_action') score += 46;
-  if(tile.type==='extra_spawn') score += 40;
-  if(tile.type==='dagger') score += 20;
-  if(tile.type==='atk_plus') score += 22;
-  if(tile.type==='def_plus') score += 18;
-  if(tile.type==='atk_minus') score -= 20;
-  if(tile.type==='thorns') score -= 600;
+  score += (curDist-newDist)*w.centerPull;
+  if(tile.type==='mana_pool') score += w.manaPool;
+  if(tile.type==='extra_action') score += w.extraAction;
+  if(tile.type==='extra_spawn') score += w.extraSpawn;
+  if(tile.type==='dagger') score += w.dagger;
+  if(tile.type==='atk_plus') score += w.atkPlus;
+  if(tile.type==='def_plus') score += w.defPlus;
+  if(tile.type==='atk_minus') score += w.atkMinus;
+  if(tile.type==='thorns') score += w.thorns;
   // Baseline aggression: drift toward the human player's nearest troop even
   // when nothing else is happening, so CPUs actively hunt rather than idle
   // near their own shrines. Weighted below the center-pull and shrine bonuses
@@ -1442,7 +1534,7 @@ function scoreMoveTarget(troop, target, pi){
   if(humanTroops.length){
     const curHDist = Math.min(...humanTroops.map(h=>hexDistance(troop,h)));
     const newHDist = Math.min(...humanTroops.map(h=>hexDistance(target,h)));
-    score += (curHDist-newHDist)*4;
+    score += (curHDist-newHDist)*w.huntNearestEnemy;
   }
   const hypDef = 1 + (tile.type==='def_plus'?1:0);
   neighbors(target.q,target.r).forEach(nb=>{
@@ -1454,9 +1546,9 @@ function scoreMoveTarget(troop, target, pi){
       if(enemyIsHighValue){
         // Getting adjacent sets up a mana/shrine-denying attack next combat phase --
         // this is a good thing to do, not a risk to avoid.
-        score += 38;
+        score += w.setupHighValueAttack;
       } else if(es.atk >= hypDef){
-        score -= 22; // generic risk of a pointless trade elsewhere on the board
+        score += w.genericRisk; // generic risk of a pointless trade elsewhere on the board
       }
     }
   });
@@ -1471,7 +1563,7 @@ function scoreMoveTarget(troop, target, pi){
     const wasAdjacent = hexDistance(troop,{q:0,r:0})===1;
     const willBeAdjacent = hexDistance(target,{q:0,r:0})===1;
     if(occ && occ.owner!==pi && willBeAdjacent && !wasAdjacent){
-      score += 45;
+      score += w.manaAdjacencyRush;
     }
   }
   return score;
@@ -1488,12 +1580,13 @@ function cpuChooseMove(pi){
   });
   if(candidates.length===0) return null;
   // Difficulty: a chance to pick a random legal move instead of the best one.
-  if(Math.random() < DIFFICULTY[difficulty].mistakeChance){
+  if(Math.random() < AIW().mistakeChance){
     return candidates[Math.floor(Math.random()*candidates.length)];
   }
   return best;
 }
 function cpuChooseAttack(pi){
+  const w = AIW();
   let best=null, bestScore=0;
   const candidates = [];
   troops.filter(t=>t.owner===pi && !isLocked(t)).forEach(troop=>{
@@ -1505,18 +1598,18 @@ function cpuChooseAttack(pi){
         const iKill = aS.atk >= dS.def;
         const iDie = dS.atk >= aS.def;
         const et = getTile(enemy.q,enemy.r);
-        const highValue = et.type==='mana_pool' ? 55 : LOCKING_TYPES.includes(et.type) ? 30 : 0;
+        const highValue = et.type==='mana_pool' ? w.highValueMana : LOCKING_TYPES.includes(et.type) ? w.highValueLocking : 0;
         // Both CPUs lean on pressuring the human specifically (that's the
         // player they're actually trying to beat), and both like picking off
         // targets that have no ally backing them up.
         const isHuman = players[enemy.owner].human;
-        const isolatedBonus = isIsolated(enemy) ? 15 : 0;
-        const pressureBonus = (isHuman ? 20 : 0) + isolatedBonus;
+        const isolatedBonus = isIsolated(enemy) ? w.isolatedBonus : 0;
+        const pressureBonus = (isHuman ? w.pressureLeader : 0) + isolatedBonus;
         let score;
-        if(iKill && !iDie) score = 100 + highValue + pressureBonus;  // free kill, always take it
-        else if(iKill && iDie) score = 35 + highValue + pressureBonus; // mutual trade — worth it to deny value tiles / pressure the human
-        else if(!iKill && !iDie) score = -10;                          // pointless bump, waste of an action point
-        else score = -60 + highValue*0.5 + pressureBonus*0.5;          // I'd die for nothing, unless it's very high value
+        if(iKill && !iDie) score = w.freeKillBase + highValue + pressureBonus;  // free kill, always take it
+        else if(iKill && iDie) score = w.mutualTradeBase + highValue + pressureBonus; // mutual trade — worth it to deny value tiles / pressure the human
+        else if(!iKill && !iDie) score = w.pointlessBump;                          // pointless bump, waste of an action point
+        else score = w.loseForNothingBase + highValue*w.loseForNothingHighValueMult + pressureBonus*w.loseForNothingPressureMult; // I'd die for nothing, unless it's very high value
         candidates.push({attacker:troop, defender:enemy, score});
         if(score>bestScore){ bestScore=score; best={attacker:troop, defender:enemy, score}; }
       }
@@ -1524,7 +1617,7 @@ function cpuChooseAttack(pi){
   });
   if(candidates.length===0) return null;
   // Difficulty: a chance to pick a random legal attack instead of the best one.
-  if(Math.random() < DIFFICULTY[difficulty].mistakeChance){
+  if(Math.random() < w.mistakeChance){
     return candidates[Math.floor(Math.random()*candidates.length)];
   }
   return best;
