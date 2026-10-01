@@ -92,7 +92,51 @@ To ship a newly-trained set of weights:
    already, so every difficulty tier immediately plays with the new
    numbers.
 
-## Extending the genome
+## Why "Hard" wasn't actually hard the first time
+
+The first version of this trainer used a small population (40), few
+matches per genome (8), and no memory across generations. Two problems
+fell out of that:
+
+1. **Too much noise.** With only 8 matches, a genome's measured win rate
+   swings wildly from luck alone, so the "best" genome each generation
+   was often just the luckiest one, not the strongest one.
+2. **Self-play can cycle instead of improve.** If genome A beats B, B
+   beats C, and C beats A, a population can drift in circles forever
+   without ever getting objectively better — and a population can even
+   *forget* how to beat a strategy an earlier generation had already
+   solved, since nothing forces it to stay good against anything but
+   its current peers.
+
+Both are fixed now: `--matches` is higher by default, and every few
+generations the champion is inducted into a **Hall of Fame** — an
+archive of past strong genomes that stays in the opponent pool
+permanently (see `pickOpponents` / `hallOfFame` in `train.js`). New
+genomes have to keep beating old champions, not just whoever's
+currently in the population. Re-run with `node train.js --pop 44 --gens
+25 --matches 12` (the settings this repo's `weights/hard.json` were
+produced with) and Hard now beats the original hand-tuned weights ~59%
+of the time in a 3-way match, well above the ~33% fair share.
+
+## Strategic-depth genes
+
+The original weights were purely "how good is this tile / this attack,
+right now" — no sense of time, no defense, no reaction to who's winning.
+Four new genes give the behavior tree the vocabulary for that:
+
+| Gene | What it does |
+|---|---|
+| `economyDecay` | Fades the value of extra-action/extra-spawn shrines as the leading player's mana climbs toward the win threshold. Rushing a spawn shrine on turn 3 pays off over many turns; grabbing one turn 45 when someone's about to win doesn't. `0` = no fade, `~1` = shrines become worthless once someone's near victory. |
+| `defendLockedBonus` | Extra score for attacking an enemy troop that's standing next to one of *my* troops already parked on a locked shrine/mana tile — i.e. defending an engine I built, not just chasing new value. |
+| `reinforceBonus` | Extra score for moving a troop next to my own locked troop that has no other ally guarding it yet — garrison a shrine instead of leaving it as a free kill. |
+| `pressureMarginScale` | Scales how much harder both CPUs lean on whichever player (human or CPU) is currently in the lead, in proportion to how close they are to actually winning. Replaces the old "always target the human" rule — a human who's behind gets left alone; a human about to win gets ganged up on hard. |
+
+These are genes like any other — `train.js` evolves them exactly the
+same way, and the trained `hard.json` in this repo has `defendLockedBonus`
+and `reinforceBonus` both evolving *above* their seeded starting values,
+meaning self-play found defending/garrisoning shrines even more valuable
+than the initial guess.
+
 
 If you add a new tunable heuristic to the CPU AI later, the pattern is:
 

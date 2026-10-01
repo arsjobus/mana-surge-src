@@ -51,6 +51,27 @@ const DEFAULT_WEIGHTS = {
   daggerClosingManaThreshold: 7,
   daggerClosingTroopThreshold: 5,
 
+  // --- Strategic-depth genes ---
+  // How much an economy shrine's value fades as the game progresses.
+  // 0 = grab spawn/action shrines just as eagerly on the last turn as the
+  // first; 1 = worthless once someone's about to win. The idea: an extra
+  // action point is worth a lot when there are 20 turns left to spend it,
+  // and much less when the game is about to end.
+  economyDecay: 0.6,
+  // Bonus for attacking an enemy troop that is standing next to (about to
+  // threaten) one of MY OWN troops parked on a locked economy/mana tile --
+  // i.e. defending an engine you already built, not just chasing value.
+  defendLockedBonus: 30,
+  // Bonus for moving a troop adjacent to my own locked troop that has no
+  // other ally guarding it yet -- garrisoning a shrine instead of leaving
+  // the troop sitting there alone as a free kill.
+  reinforceBonus: 12,
+  // Scales how much HARDER to lean on pressuring the leader as their mana
+  // lead grows, on top of the flat pressureLeader bonus. 0 = no scaling
+  // (leader always gets the same flat bonus); 1 = pressure roughly doubles
+  // once they're one mana point from winning.
+  pressureMarginScale: 0.5,
+
   mistakeChance: 0.08
 };
 
@@ -86,8 +107,20 @@ const GENE_BOUNDS = {
   daggerClosingManaThreshold:  [4, 9],
   daggerClosingTroopThreshold: [3, 9],
 
+  economyDecay:        [0, 0.9],
+  defendLockedBonus:   [0, 80],
+  reinforceBonus:      [0, 40],
+  pressureMarginScale: [0, 1],
+
   mistakeChance: [0, 0.6]
 };
+
+function gameProgress(game){
+  // 0 = fresh game, 1 = someone is one mana point from winning. Used to
+  // fade out "build my economy" behavior in favor of "close the game out".
+  const leaderMana = Math.max(...game.players.map(p=>p.mana));
+  return Math.max(0, Math.min(1, leaderMana / game.winScore));
+}
 
 function isIsolated(game, troop){
   return !neighbors(troop.q,troop.r).some(n=>{
@@ -96,15 +129,16 @@ function isIsolated(game, troop){
   });
 }
 
-function scoreMoveTarget(game, troop, target, pi, w){
+function scoreMoveTarget(game, troop, target, pi, w, myLockedAllies){
   const tile = game.getTile(target.q, target.r);
   let score = 0;
   const curDist = hexDistance(troop, {q:0,r:0});
   const newDist = hexDistance(target, {q:0,r:0});
   score += (curDist - newDist) * w.centerPull;
+  const economyFactor = 1 - gameProgress(game)*w.economyDecay;
   if(tile.type==='mana_pool') score += w.manaPool;
-  if(tile.type==='extra_action') score += w.extraAction;
-  if(tile.type==='extra_spawn') score += w.extraSpawn;
+  if(tile.type==='extra_action') score += w.extraAction * economyFactor;
+  if(tile.type==='extra_spawn') score += w.extraSpawn * economyFactor;
   if(tile.type==='dagger') score += w.dagger;
   if(tile.type==='atk_plus') score += w.atkPlus;
   if(tile.type==='def_plus') score += w.defPlus;
@@ -137,17 +171,39 @@ function scoreMoveTarget(game, troop, target, pi, w){
     const willBeAdjacent = hexDistance(target, {q:0,r:0})===1;
     if(occ && occ.owner!==pi && willBeAdjacent && !wasAdjacent) score += w.manaAdjacencyRush;
   }
+
+  // Garrison a locked economy/mana troop of mine that nobody's guarding yet,
+  // instead of leaving it standing alone as a free kill for an opponent.
+  // (myLockedAllies is computed once per chooseMove call, not per candidate --
+  // this loop runs for every legal move, so recomputing it here would be
+  // the single biggest cost in the whole simulation.)
+  if(myLockedAllies && myLockedAllies.length){
+    myLockedAllies.forEach(lockedAlly=>{
+      if(lockedAlly.id===troop.id) return;
+      const distNow = hexDistance(troop, lockedAlly);
+      const distAfter = hexDistance(target, lockedAlly);
+      if(distAfter===1 && distNow!==1){
+        const alreadyGuarded = neighbors(lockedAlly.q, lockedAlly.r).some(n=>{
+          const t2 = game.getTroopAt(n.q, n.r);
+          return t2 && t2.owner===pi && t2.id!==troop.id;
+        });
+        if(!alreadyGuarded) score += w.reinforceBonus;
+      }
+    });
+  }
+
   return score;
 }
 
 function chooseMove(game, pi, w, rng){
   let best=null, bestScore=2;
   const candidates=[];
+  const myLockedAllies = game.troops.filter(t=>t.owner===pi && LOCKING_TYPES.includes(game.getTile(t.q,t.r).type));
   game.troops.filter(t=>t.owner===pi && !game.isLocked(t)).forEach(troop=>{
     neighbors(troop.q, troop.r)
       .filter(n=>game.tiles.has(n.q+','+n.r) && game.isEmptyTile(n))
       .forEach(target=>{
-        const s = scoreMoveTarget(game, troop, target, pi, w);
+        const s = scoreMoveTarget(game, troop, target, pi, w, myLockedAllies);
         candidates.push({troop, target, score:s});
         if(s>bestScore){ bestScore=s; best={troop,target,score:s}; }
       });
@@ -161,6 +217,8 @@ function chooseAttack(game, pi, w, rng){
   let best=null, bestScore=0;
   const candidates=[];
   const leader = game.players.reduce((a,_,i)=> game.players[i].mana>game.players[a].mana ? i : a, 0);
+  const leaderMargin = game.players[leader].mana / game.winScore; // 0..1, how close the leader is to winning
+  const myLockedTroops = game.troops.filter(t=>t.owner===pi && LOCKING_TYPES.includes(game.getTile(t.q,t.r).type));
   game.troops.filter(t=>t.owner===pi && !game.isLocked(t)).forEach(troop=>{
     const aS = game.getStats(troop);
     neighbors(troop.q, troop.r).forEach(nb=>{
@@ -174,11 +232,17 @@ function chooseAttack(game, pi, w, rng){
           : LOCKING_TYPES.includes(et.type) ? w.highValueLocking : 0;
         const isLeader = enemy.owner===leader;
         const isolatedBonus = isIsolated(game, enemy) ? w.isolatedBonus : 0;
-        const pressureBonus = (isLeader ? w.pressureLeader : 0) + isolatedBonus;
+        const leaderBonus = isLeader ? w.pressureLeader * (1 + w.pressureMarginScale*leaderMargin) : 0;
+        // Defending an economy engine I already built is worth acting on
+        // even when the trade itself looks marginal.
+        const threatensMyLocked = myLockedTroops.some(lt=>
+          neighbors(lt.q, lt.r).some(n=>n.q===enemy.q && n.r===enemy.r));
+        const defendBonus = threatensMyLocked ? w.defendLockedBonus : 0;
+        const pressureBonus = leaderBonus + isolatedBonus + defendBonus;
         let score;
         if(iKill && !iDie) score = w.freeKillBase + highValue + pressureBonus;
         else if(iKill && iDie) score = w.mutualTradeBase + highValue + pressureBonus;
-        else if(!iKill && !iDie) score = w.pointlessBump;
+        else if(!iKill && !iDie) score = w.pointlessBump + defendBonus*0.5;
         else score = w.loseForNothingBase + highValue*w.loseForNothingHighValueMult + pressureBonus*w.loseForNothingPressureMult;
         candidates.push({attacker:troop, defender:enemy, score});
         if(score>bestScore){ bestScore=score; best={attacker:troop, defender:enemy, score}; }
