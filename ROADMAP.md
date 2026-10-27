@@ -113,7 +113,7 @@ Cross-module dependencies to watch: board queries are used by rendering, input, 
 - [x] Extract attack resolution and sacrifice rules into `systems/CombatSystem.js`.
 - [x] Extract spawn selection and troop spawn rules into `systems/SpawnSystem.js`.
 - [x] Extract start, move, combat, and end phases plus turn sequencing into `systems/TurnSystem.js`.
-- [ ] Centralize match data access through `GameState`; avoid duplicating state or exposing mutable collections more widely than needed.
+- [x] Centralize match data access through `GameState`; avoid duplicating state or exposing mutable collections more widely than needed.
 - [x] Keep game-over checks and victory determination in the rules/turn layer, with UI only displaying the outcome.
 
 ### 5. Extract CPU behavior

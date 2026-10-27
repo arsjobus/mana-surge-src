@@ -1,3 +1,4 @@
+import { GameState } from './state/GameState.js';
 /* ======================================================================
    MANA SURGE — single-file Phaser 3 implementation
    ====================================================================== */
@@ -14,6 +15,7 @@ import { daggerAvailable as combatDaggerAvailable, cpuShouldUseDagger as combatC
 import { startPhase as runStartPhase, chooseCpuSpawnTile } from './systems/SpawnSystem.js';
 import { playTurn as runTurn, gameLoop as runGameLoop, endPhase as runEndPhase, executeMove as runExecuteMove, movePhase as runMovePhase, combatPhase as runCombatPhase } from './systems/TurnSystem.js';
 
+const gameState = new GameState();
 
 /* ---------------------------------------------------------------------
    Hex math (pointy-top, axial coordinates)
@@ -21,12 +23,6 @@ import { playTurn as runTurn, gameLoop as runGameLoop, endPhase as runEndPhase, 
 /* ---------------------------------------------------------------------
    Game state
 --------------------------------------------------------------------- */
-let tiles = new Map();
-let troops = [];
-let nextTroopId = 1;
-let players = [];
-let currentPlayerIndex = 0;
-let gameOver = false;
 let scene = null;
 let bgmSound = null;
 
@@ -53,54 +49,50 @@ let bgmSound = null;
 // matches against "hard". Regenerate these by running
 // `node train.js && node calibrate.js weights/evolved.json` in that
 // folder and pasting the resulting JSON back in here.
-let difficulty = 'medium';
-function AIW(){ return WEIGHT_PRESETS[difficulty]; }
+function AIW(){ return WEIGHT_PRESETS[gameState.difficulty]; }
 
 // Victory threshold, chosen on the start screen via the slider (10/20/30/40/50).
-let winScore = 10;
 
 // Which color the human plays as (0=Red, 1=Blue, 2=Green). The board itself
 // is fixed -- Red's spawner is always the left corner, Blue upper-right,
 // Green bottom -- so this just decides which of those three seats the human
 // sits in; the other two are always CPU-controlled, and turn order still
 // goes clockwise Red -> Blue -> Green regardless of which one is human.
-let humanColorIndex = 0;
 let boardCX = 0, boardCY = 0;
-let pending = null; // {kind, pi, resolve, selected, options}
 let highlightSprites = [];
 let selectionSprite = null;
 
 function boardX(px){ return boardCX + px; }
 function boardY(py){ return boardCY + py; }
 
-function playerColorHex(pi){ return players[pi].colorHex; }
-function playerName(pi){ return players[pi].name; }
+function playerColorHex(pi){ return gameState.players[pi].colorHex; }
+function playerName(pi){ return gameState.players[pi].name; }
 
-function getTile(q,r){ return BoardModel.getTile(tiles,q,r); }
-function isLocked(troop){ return BoardModel.isLocked(tiles,troop); }
-function getStats(troop){ return BoardModel.getStats(tiles,troop); }
-function getTroopAt(q,r){ return BoardModel.getTroopAt(tiles,troops,q,r); }
-function isEmptyTile(coord){ return BoardModel.isEmptyTile(tiles,coord); }
-function countTiles(pi,type){ return BoardModel.countTiles(tiles,troops,pi,type); }
-function hasLegalMove(pi){ return BoardModel.hasLegalMove(tiles,troops,pi); }
-function hasLegalAttack(pi){ return BoardModel.hasLegalAttack(tiles,troops,pi); }
+function getTile(q,r){ return BoardModel.getTile(gameState.tiles,q,r); }
+function isLocked(troop){ return BoardModel.isLocked(gameState.tiles,troop); }
+function getStats(troop){ return BoardModel.getStats(gameState.tiles,troop); }
+function getTroopAt(q,r){ return BoardModel.getTroopAt(gameState.tiles,gameState.troops,q,r); }
+function isEmptyTile(coord){ return BoardModel.isEmptyTile(gameState.tiles,coord); }
+function countTiles(pi,type){ return BoardModel.countTiles(gameState.tiles,gameState.troops,pi,type); }
+function hasLegalMove(pi){ return BoardModel.hasLegalMove(gameState.tiles,gameState.troops,pi); }
+function hasLegalAttack(pi){ return BoardModel.hasLegalAttack(gameState.tiles,gameState.troops,pi); }
 
 // Exact board layout extracted and verified (via pixel measurement + 3-fold
 // rotational symmetry validation) from the reference board image. This is a
 // fixed, hand-authored layout so every match is provably identical and fair
 // for all three players -- not randomly generated.
-function buildBoard(){ tiles = BoardModel.buildBoard(players); }
+function buildBoard(){ gameState.tiles = BoardModel.buildBoard(gameState.players); }
 
 function troopContext(){
   return {
-    scene, tiles, troops, nextId:()=>nextTroopId++, boardOrigin:{x:boardCX,y:boardCY},
+    scene, tiles:gameState.tiles, troops:gameState.troops, nextId:()=>gameState.nextTroopId++, boardOrigin:{x:boardCX,y:boardCY},
     playerColor:playerColorHex, getStats, isLocked,
     onClick:onTroopClicked, onHover:showTileInfo,
     burst:(x,y,color,count)=>troopBurst(scene,x,y,color,count)
   };
 }
 function createTroop(owner,q,r,animate){ return createTroopView(troopContext(),owner,q,r,animate); }
-function setupInitialTroops(){ BoardModel.setupInitialTroops(players,tiles,createTroop); }
+function setupInitialTroops(){ BoardModel.setupInitialTroops(gameState.players,gameState.tiles,createTroop); }
 
 /* ---------------------------------------------------------------------
    Background music
@@ -218,43 +210,43 @@ function cssColor(hex){ return '#'+hex.toString(16).padStart(6,'0'); }
    Input handling
 --------------------------------------------------------------------- */
 function waitFor(kind, pi){
-  return new Promise(resolve=>{ pending = {kind, pi, resolve, selected:null, options:null, picks:[]}; });
+  return new Promise(resolve=>{ gameState.pending = {kind, pi, resolve, selected:null, options:null, picks:[]}; });
 }
 
 function ruleContext(){
   return {
-    players:()=>players, troops:()=>troops, tiles:()=>tiles, countTiles,
+    players:()=>gameState.players, troops:()=>gameState.troops, tiles:()=>gameState.tiles, countTiles,
     getTile, isLocked, getStats, isEmptyTile, neighbors, sleep, log, coloredName, cssColor,
     createTroop, destroyTroop, waitFor, updateHUD, document, axialToPixel:(q,r)=>axialToPixel(q,r,HEX_SIZE),
-    boardX, boardY, burst, winScore, setGameOver:(value)=>{ gameOver=value; },
+    boardX, boardY, burst, winScore:gameState.winScore, setGameOver:(value)=>{ gameState.gameOver=value; },
     showVictory, weights:AIW, cpuChooseSpawnTile:(_pi, options)=>chooseCpuSpawnTile({getTile},options),
     waitForSpawn:chooseSpawnTileHuman, hasLegalMove, hasLegalAttack, daggerAvailable,
-    gameOver:()=>gameOver, performSacrifice, executeMove, executeAttack, clearHighlights,
+    gameOver:()=>gameState.gameOver, performSacrifice, executeMove, executeAttack, clearHighlights,
     moveDecision:(pi,isPreCombat)=>CPU_MOVE_TREE({pi,isPreCombat}),
     combatDecision:(pi)=>CPU_COMBAT_TREE({pi})
   };
 }
 
 function daggerAvailable(pi){
-  return combatDaggerAvailable({countTiles, troops:()=>troops},pi);
+  return combatDaggerAvailable({countTiles, troops:()=>gameState.troops},pi);
 }
 
 // The CPU should treat the Sacrificial Dagger as a late-game/surplus finishing
 // move, not an early priority: only reach for it once it has a healthy troop
 // surplus to spare, or as a genuine closing push when already near victory.
 function cpuShouldUseDagger(pi){
-  return combatCpuShouldUseDagger({players:()=>players,troops:()=>troops,weights:AIW},pi);
+  return combatCpuShouldUseDagger({players:()=>gameState.players,troops:()=>gameState.troops,weights:AIW},pi);
 }
 
 function onTroopClicked(troop){
-  if(!pending) return;
-  const {kind, pi} = pending;
+  if(!gameState.pending) return;
+  const {kind, pi} = gameState.pending;
   if(kind==='sacrifice'){
-    if(troop.owner===pi && !pending.picks.includes(troop)){
-      pending.picks.push(troop);
+    if(troop.owner===pi && !gameState.pending.picks.includes(troop)){
+      gameState.pending.picks.push(troop);
       troop.selSprite.setTint(0xd94fa0).setAlpha(1);
-      if(pending.picks.length>=3){
-        const resolveFn = pending.resolve; const picks=pending.picks; pending=null; clearHighlights();
+      if(gameState.pending.picks.length>=3){
+        const resolveFn = gameState.pending.resolve; const picks=gameState.pending.picks; gameState.pending=null; clearHighlights();
         resolveFn(picks);
       }
     }
@@ -262,18 +254,18 @@ function onTroopClicked(troop){
   }
   if(kind==='move'){
     if(troop.owner===pi && !isLocked(troop)){
-      const targets = neighbors(troop.q,troop.r).filter(n=>tiles.has(key(n.q,n.r)) && isEmptyTile(n));
+      const targets = neighbors(troop.q,troop.r).filter(n=>gameState.tiles.has(key(n.q,n.r)) && isEmptyTile(n));
       if(targets.length===0){ flashInvalid(troop); return; }
       clearHighlights();
-      pending.selected = troop;
+      gameState.pending.selected = troop;
       highlightTroopSelected(troop);
       highlightMoveTargets(targets);
     }
   } else if(kind==='attack'){
-    if(pending.selected && troop.owner!==pi){
-      const src = pending.selected;
+    if(gameState.pending.selected && troop.owner!==pi){
+      const src = gameState.pending.selected;
       if(hexDistance(src,troop)===1){
-        const resolveFn = pending.resolve; pending=null; clearHighlights();
+        const resolveFn = gameState.pending.resolve; gameState.pending=null; clearHighlights();
         resolveFn({type:'attack', attacker:src, defender:troop});
         return;
       }
@@ -282,7 +274,7 @@ function onTroopClicked(troop){
       const targets = neighbors(troop.q,troop.r).map(n=>getTroopAt(n.q,n.r)).filter(t=>t && t.owner!==pi);
       if(targets.length===0){ flashInvalid(troop); return; }
       clearHighlights();
-      pending.selected = troop;
+      gameState.pending.selected = troop;
       highlightTroopSelected(troop);
       highlightAttackTargets(targets);
     }
@@ -290,16 +282,16 @@ function onTroopClicked(troop){
 }
 
 function onTileClicked(tile){
-  if(!pending) return;
-  if(pending.kind==='move' && pending.selected){
-    const src = pending.selected;
+  if(!gameState.pending) return;
+  if(gameState.pending.kind==='move' && gameState.pending.selected){
+    const src = gameState.pending.selected;
     if(hexDistance(src,tile)===1 && isEmptyTile(tile)){
-      const resolveFn = pending.resolve; pending=null; clearHighlights();
+      const resolveFn = gameState.pending.resolve; gameState.pending=null; clearHighlights();
       resolveFn({type:'move', troop:src, target:{q:tile.q,r:tile.r}});
     }
-  } else if(pending.kind==='spawnChoice' && pending.options){
-    if(pending.options.some(o=>o.q===tile.q && o.r===tile.r)){
-      const resolveFn = pending.resolve; pending=null; clearHighlights();
+  } else if(gameState.pending.kind==='spawnChoice' && gameState.pending.options){
+    if(gameState.pending.options.some(o=>o.q===tile.q && o.r===tile.r)){
+      const resolveFn = gameState.pending.resolve; gameState.pending=null; clearHighlights();
       resolveFn({q:tile.q,r:tile.r});
     }
   }
@@ -310,7 +302,7 @@ function flashInvalid(troop){
 }
 
 function setupTileInput(){
-  tiles.forEach(t=>{
+  gameState.tiles.forEach(t=>{
     t.baseSprite.setInteractive({useHandCursor:false});
     t.baseSprite.on('pointerdown', ()=>onTileClicked(t));
     t.baseSprite.on('pointerover', ()=>showTileInfo(t, getTroopAt(t.q,t.r)));
@@ -323,24 +315,24 @@ function setupTileInput(){
 function buildManaPanel(){
   const panel = document.getElementById('mana-panel');
   panel.innerHTML='';
-  players.forEach((p,i)=>{
+  gameState.players.forEach((p,i)=>{
     const row = document.createElement('div');
     row.className='mana-row';
     row.id='mana-row-'+i;
     row.style.setProperty('--rowcolor', cssColor(p.colorHex));
-    row.innerHTML = `<div class="mr-top"><span class="mr-name">${p.name}</span><span class="mr-count">0 / ${winScore}</span></div>
+    row.innerHTML = `<div class="mr-top"><span class="mr-name">${p.name}</span><span class="mr-count">0 / ${gameState.winScore}</span></div>
       <div class="mana-bar-bg"><div class="mana-bar-fill" style="width:0%"></div></div>`;
     panel.appendChild(row);
   });
 }
 function updateHUD(){
-  players.forEach((p,i)=>{
+  gameState.players.forEach((p,i)=>{
     const row = document.getElementById('mana-row-'+i);
-    row.classList.toggle('active', i===currentPlayerIndex);
-    row.querySelector('.mr-count').textContent = `${p.mana} / ${winScore}`;
-    row.querySelector('.mana-bar-fill').style.width = (p.mana/winScore*100)+'%';
+    row.classList.toggle('active', i===gameState.currentPlayerIndex);
+    row.querySelector('.mr-count').textContent = `${p.mana} / ${gameState.winScore}`;
+    row.querySelector('.mana-bar-fill').style.width = (p.mana/gameState.winScore*100)+'%';
   });
-  const p = players[currentPlayerIndex];
+  const p = gameState.players[gameState.currentPlayerIndex];
   document.getElementById('turn-text').textContent = p.name+"'s Turn";
   document.getElementById('turn-dot').style.background = cssColor(p.colorHex);
   document.getElementById('turn-dot').style.color = cssColor(p.colorHex);
@@ -372,8 +364,8 @@ async function startPhase(pi){
 
 function chooseSpawnTileHuman(options){
   document.getElementById('skip-btn').disabled = true;
-  const promise = waitFor('spawnChoice', currentPlayerIndex);
-  pending.options = options;
+  const promise = waitFor('spawnChoice', gameState.currentPlayerIndex);
+  gameState.pending.options = options;
   highlightSpawnOptions(options);
   return promise.then(res=>{ clearHighlights(); return res; });
 }
@@ -387,7 +379,7 @@ async function performSacrifice(pi){
 }
 
 /* ---------------------------------------------------------------------
-   Behavior Tree framework for CPU players
+   Behavior Tree framework for CPU gameState.players
    ---------------------------------------------------------------------
    Phaser has no built-in behavior-tree system (checked: nothing in core
    or the official plugin set does this), so this is a small real one,
@@ -444,7 +436,7 @@ function Action(fn){ return function(bb){ return fn(bb); }; }
 const UNMISSABLE_CLAIM_TYPES = ['mana_pool','extra_action','extra_spawn','dagger'];
 const CPU_MOVE_TREE = Selector(
   Sequence(
-    Condition(bb => bb.isPreCombat && players[bb.pi].actionPoints <= 1),
+    Condition(bb => bb.isPreCombat && gameState.players[bb.pi].actionPoints <= 1),
     Condition(bb => { bb.pendingAttack = cpuChooseAttack(bb.pi); return !!bb.pendingAttack; }),
     Condition(bb => {
       bb.bestMove = cpuChooseMove(bb.pi);
@@ -514,8 +506,8 @@ function isIsolated(troop){
 function gameProgress(){
   // 0 = fresh game, 1 = someone is one mana point from winning. Used to
   // fade out "build my economy" behavior in favor of "close the game out".
-  const leaderMana = Math.max(...players.map(p=>p.mana));
-  return Math.max(0, Math.min(1, leaderMana/winScore));
+  const leaderMana = Math.max(...gameState.players.map(p=>p.mana));
+  return Math.max(0, Math.min(1, leaderMana/gameState.winScore));
 }
 function scoreMoveTarget(troop, target, pi, myLockedAllies){
   const w = AIW();
@@ -537,7 +529,7 @@ function scoreMoveTarget(troop, target, pi, myLockedAllies){
   // when nothing else is happening, so CPUs actively hunt rather than idle
   // near their own shrines. Weighted below the center-pull and shrine bonuses
   // above, so it only breaks ties / fills in when there's no bigger prize.
-  const humanTroops = troops.filter(t=>players[t.owner].human);
+  const humanTroops = gameState.troops.filter(t=>gameState.players[t.owner].human);
   if(humanTroops.length){
     const curHDist = Math.min(...humanTroops.map(h=>hexDistance(troop,h)));
     const newHDist = Math.min(...humanTroops.map(h=>hexDistance(target,h)));
@@ -566,7 +558,7 @@ function scoreMoveTarget(troop, target, pi, myLockedAllies){
   // NOT keep re-earning this bonus, or it'll wander instead of attacking.
   const manaTile = getTile(0,0);
   if(manaTile.occupantId!=null){
-    const occ = troops.find(t=>t.id===manaTile.occupantId);
+    const occ = gameState.troops.find(t=>t.id===manaTile.occupantId);
     const wasAdjacent = hexDistance(troop,{q:0,r:0})===1;
     const willBeAdjacent = hexDistance(target,{q:0,r:0})===1;
     if(occ && occ.owner!==pi && willBeAdjacent && !wasAdjacent){
@@ -594,9 +586,9 @@ function scoreMoveTarget(troop, target, pi, myLockedAllies){
 function cpuChooseMove(pi){
   let best=null, bestScore=2; // threshold: don't move without benefit
   const candidates = [];
-  const myLockedAllies = troops.filter(t=>t.owner===pi && LOCKING_TYPES.includes(getTile(t.q,t.r).type));
-  troops.filter(t=>t.owner===pi && !isLocked(t)).forEach(troop=>{
-    neighbors(troop.q,troop.r).filter(n=>tiles.has(key(n.q,n.r)) && isEmptyTile(n)).forEach(target=>{
+  const myLockedAllies = gameState.troops.filter(t=>t.owner===pi && LOCKING_TYPES.includes(getTile(t.q,t.r).type));
+  gameState.troops.filter(t=>t.owner===pi && !isLocked(t)).forEach(troop=>{
+    neighbors(troop.q,troop.r).filter(n=>gameState.tiles.has(key(n.q,n.r)) && isEmptyTile(n)).forEach(target=>{
       const s = scoreMoveTarget(troop, target, pi, myLockedAllies);
       candidates.push({troop,target,score:s});
       if(s>bestScore){ bestScore=s; best={troop,target,score:s}; }
@@ -618,10 +610,10 @@ function cpuChooseAttack(pi){
   // Pressuring whoever's actually closest to winning (instead of always
   // fixating on the human) means the CPUs back off a struggling human and
   // lean harder on anyone, human or CPU, who's about to close the game out.
-  const leader = players.reduce((a,_,i)=> players[i].mana>players[a].mana ? i : a, 0);
-  const leaderMargin = players[leader].mana / winScore;
-  const myLockedTroops = troops.filter(t=>t.owner===pi && LOCKING_TYPES.includes(getTile(t.q,t.r).type));
-  troops.filter(t=>t.owner===pi && !isLocked(t)).forEach(troop=>{
+  const leader = gameState.players.reduce((a,_,i)=> gameState.players[i].mana>gameState.players[a].mana ? i : a, 0);
+  const leaderMargin = gameState.players[leader].mana / gameState.winScore;
+  const myLockedTroops = gameState.troops.filter(t=>t.owner===pi && LOCKING_TYPES.includes(getTile(t.q,t.r).type));
+  gameState.troops.filter(t=>t.owner===pi && !isLocked(t)).forEach(troop=>{
     const aS = getStats(troop);
     neighbors(troop.q,troop.r).forEach(nb=>{
       const enemy = getTroopAt(nb.q,nb.r);
@@ -644,7 +636,7 @@ function cpuChooseAttack(pi){
         const pressureBonus = leaderBonus + isolatedBonus + defendBonus;
         let score;
         if(iKill && !iDie) score = w.freeKillBase + highValue + pressureBonus;  // free kill, always take it
-        else if(iKill && iDie) score = w.mutualTradeBase + highValue + pressureBonus; // mutual trade — worth it to deny value tiles / pressure the leader
+        else if(iKill && iDie) score = w.mutualTradeBase + highValue + pressureBonus; // mutual trade — worth it to deny value gameState.tiles / pressure the leader
         else if(!iKill && !iDie) score = w.pointlessBump + defendBonus*0.5;         // pointless bump, unless it still chases off a shrine threat
         else score = w.loseForNothingBase + highValue*w.loseForNothingHighValueMult + pressureBonus*w.loseForNothingPressureMult; // I'd die for nothing, unless it's very high value
         candidates.push({attacker:troop, defender:enemy, score});
@@ -664,21 +656,21 @@ function cpuChooseAttack(pi){
    Main loop
 --------------------------------------------------------------------- */
 async function playTurn(pi){
-return runTurn({...ruleContext(),setPhaseUI,startPhase,movePhase,combatPhase,endPhase,isGameOver:()=>gameOver},pi);
+return runTurn({...ruleContext(),setPhaseUI,startPhase,movePhase,combatPhase,endPhase,isGameOver:()=>gameState.gameOver},pi);
 }
 async function gameLoop(){
-  return runGameLoop({...ruleContext(),currentPlayerIndex:()=>currentPlayerIndex,setCurrentPlayerIndex:(value)=>{currentPlayerIndex=value;},playTurn,isGameOver:()=>gameOver});
+  return runGameLoop({...ruleContext(),currentPlayerIndex:()=>gameState.currentPlayerIndex,setCurrentPlayerIndex:(value)=>{gameState.currentPlayerIndex=value;},playTurn,isGameOver:()=>gameState.gameOver});
 }
 
 function showVictory(pi){
   document.getElementById('skip-btn').disabled = true;
-  document.getElementById('victory-title').textContent = players[pi].human ? 'Victory!' : 'Defeat...';
-  document.getElementById('victory-title').style.color = cssColor(players[pi].colorHex);
-  document.getElementById('victory-text').innerHTML = `${coloredName(pi)} has gathered <b>${winScore} mana points</b> and won the Surge!`;
+  document.getElementById('victory-title').textContent = gameState.players[pi].human ? 'Victory!' : 'Defeat...';
+  document.getElementById('victory-title').style.color = cssColor(gameState.players[pi].colorHex);
+  document.getElementById('victory-text').innerHTML = `${coloredName(pi)} has gathered <b>${gameState.winScore} mana points</b> and won the Surge!`;
   document.getElementById('victory-modal').style.display='flex';
   const px = axialToPixel(0,0,HEX_SIZE);
   for(let i=0;i<5;i++){
-    scene.time.delayedCall(i*180, ()=>burst(boardX(px.x)+ (Math.random()*80-40), boardY(px.y)+(Math.random()*80-40), players[pi].colorHex, 30));
+    scene.time.delayedCall(i*180, ()=>burst(boardX(px.x)+ (Math.random()*80-40), boardY(px.y)+(Math.random()*80-40), gameState.players[pi].colorHex, 30));
   }
 }
 
@@ -705,16 +697,16 @@ class MainScene extends Phaser.Scene {
     }
     loadingMsg.destroy();
 
-    players = COLOR_META.map((c,i)=>({...c, human:i===humanColorIndex, mana:0, actionPoints:1}));
+    gameState.players = COLOR_META.map((c,i)=>({...c, human:i===gameState.humanColorIndex, mana:0, actionPoints:1}));
     try{
       buildBoard();
-      drawBoard(this, tiles, players, {x:boardCX, y:boardCY});
+      drawBoard(this, gameState.tiles, gameState.players, {x:boardCX, y:boardCY});
       setupTileInput();
       setupInitialTroops();
       buildManaPanel();
       updateHUD();
       startBGM(this, this._loadedBGM); // begins now that actual play is starting
-      currentPlayerIndex = 0;
+      gameState.currentPlayerIndex = 0;
       syncUIStage(); // safety re-sync now that the canvas layout has fully settled
       gameLoop();
     }catch(e){
@@ -769,21 +761,21 @@ function syncUIStage(){
 
 document.querySelectorAll('.color-btn').forEach(btn=>{
   btn.addEventListener('click', ()=>{
-    humanColorIndex = parseInt(btn.dataset.color, 10);
+    gameState.humanColorIndex = parseInt(btn.dataset.color, 10);
     document.querySelectorAll('.color-btn').forEach(b=>b.classList.toggle('selected', b===btn));
   });
 });
 document.querySelectorAll('.diff-btn').forEach(btn=>{
   btn.addEventListener('click', ()=>{
-    difficulty = btn.dataset.diff;
+    gameState.difficulty = btn.dataset.diff;
     document.querySelectorAll('.diff-btn').forEach(b=>b.classList.toggle('selected', b===btn));
   });
 });
 document.getElementById('winscore-slider').addEventListener('input', (e)=>{
-  winScore = parseInt(e.target.value, 10);
-  document.getElementById('winscore-value').textContent = winScore;
-  document.getElementById('intro-winscore').textContent = winScore;
-  document.getElementById('help-winscore').textContent = winScore;
+  gameState.winScore = parseInt(e.target.value, 10);
+  document.getElementById('winscore-value').textContent = gameState.winScore;
+  document.getElementById('intro-winscore').textContent = gameState.winScore;
+  document.getElementById('help-winscore').textContent = gameState.winScore;
 });
 document.getElementById('start-btn').addEventListener('click', ()=>{
   document.getElementById('hidden-start-overlay').style.display='none';
@@ -793,7 +785,7 @@ function openHelpModal(){
   const modal = document.getElementById('help-modal');
   modal.style.display='flex';
   modal.querySelector('.modal-box').scrollTop = 0;
-  document.getElementById('help-winscore').textContent = winScore;
+  document.getElementById('help-winscore').textContent = gameState.winScore;
 }
 document.getElementById('rules-btn').addEventListener('click', openHelpModal);
 document.getElementById('help-btn').addEventListener('click', openHelpModal);
@@ -831,17 +823,17 @@ document.getElementById('close-credits-x').addEventListener('click', ()=>{
   document.getElementById('credits-modal').style.display='none';
 });
 document.getElementById('skip-btn').addEventListener('click', ()=>{
-  if(pending && (pending.kind==='move' || pending.kind==='attack')){
-    const r = pending.resolve; pending=null; clearHighlights();
+  if(gameState.pending && (gameState.pending.kind==='move' || gameState.pending.kind==='attack')){
+    const r = gameState.pending.resolve; gameState.pending=null; clearHighlights();
     r({type:'skip'});
-  } else if(pending && pending.kind==='sacrifice'){
-    const r = pending.resolve; pending=null; clearHighlights();
+  } else if(gameState.pending && gameState.pending.kind==='sacrifice'){
+    const r = gameState.pending.resolve; gameState.pending=null; clearHighlights();
     r(null);
   }
 });
 document.getElementById('dagger-btn').addEventListener('click', ()=>{
-  if(pending && (pending.kind==='move' || pending.kind==='attack')){
-    const r = pending.resolve; pending=null; clearHighlights();
+  if(gameState.pending && (gameState.pending.kind==='move' || gameState.pending.kind==='attack')){
+    const r = gameState.pending.resolve; gameState.pending=null; clearHighlights();
     r({type:'dagger'});
   }
 });
