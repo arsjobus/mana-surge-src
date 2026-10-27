@@ -1,0 +1,12 @@
+{
+  "name": "mana-surge",
+  "private": true,
+  "scripts": {
+    "serve": "python3 -m http.server 8000",
+    "cypress:open": "cypress open",
+    "cypress:run": "cypress run"
+  },
+  "devDependencies": {
+    "cypress": "^15.7.0"
+  }
+}

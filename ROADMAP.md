@@ -142,12 +142,12 @@ Cross-module dependencies to watch: board queries are used by rendering, input, 
 
 ## Completion criteria
 
-- [ ] The game starts from the existing start screen and supports all three seat choices, difficulty choices, and win-score settings.
+- [x] The game starts from the existing start screen and supports all three seat choices, difficulty choices, and win-score settings. Cypress covers all choices and confirms the Phaser board and configured HUD start.
 - [ ] Board layout, turns, movement, combat, spawns, shrines, mana scoring, victory, and restart behavior match the current implementation.
-- [ ] Help, credits, HUD, mute, and resize/canvas alignment remain connected and usable.
-- [ ] AI weight presets retain their current values and remain compatible with the trainer workflow.
-- [ ] No module depends on undeclared globals; imports make module dependencies clear and avoid circular imports.
-- [ ] Manual smoke check succeeds through the documented local HTTP server, including one complete match to a victory screen.
+- [x] Help, credits, HUD, mute, and resize/canvas alignment remain connected and usable. Cypress covers help, credits, mute, HUD startup, and resize alignment.
+- [x] AI weight presets retain their current values and remain compatible with the trainer workflow; the migration preserves the checked-in presets and separate trainer workflow.
+- [x] No module depends on undeclared globals; imports make module dependencies clear and avoid circular imports. Phaser remains supplied by the local script include in `index.html`.
+- [ ] Manual smoke check succeeds through the documented local HTTP server, including one complete match to a victory screen. Cypress covers victory presentation and replay affordance, but a complete human-played match remains a manual smoke check.
 
 ## Migration notes
 
