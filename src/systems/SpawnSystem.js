@@ -9,7 +9,7 @@ export function chooseCpuSpawnTile({ getTile }, options) {
 
 export async function startPhase(context, pi) {
   const { players, countTiles, troops, neighbors, tiles, isEmptyTile, waitForSpawn,
-    createTroop, cpuChooseSpawnTile, sleep, log, coloredName, updateHUD } = context;
+    createTroop, cpuChooseSpawnTile, sleep, log, coloredName, updateHUD, actionApplied } = context;
   const player = players()[pi];
   player.actionPoints = 1 + countTiles(pi, 'extra_action');
   player.maxActionPointsSeen = Math.max(player.maxActionPointsSeen || 1, player.actionPoints);
@@ -24,7 +24,10 @@ export async function startPhase(context, pi) {
     if (options.length === 1) choice = options[0];
     else if (player.human) choice = await waitForSpawn(options, pi);
     else { choice = cpuChooseSpawnTile(pi, options); await sleep(280); }
-    createTroop(pi, choice.q, choice.r, true);
+    if (context.multiplayerRole !== 'guest') {
+      createTroop(pi, choice.q, choice.r, true);
+      actionApplied?.({ type: 'spawn', tile: { q: choice.q, r: choice.r } });
+    }
     spawned++;
     await sleep(200);
   }

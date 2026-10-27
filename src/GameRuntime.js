@@ -41,6 +41,7 @@ let scene = null;
 let multiplayerSetup = null;
 let pendingGuestMoveResolve = null;
 let guestMovePhaseRunning = false;
+let guestSpawnPhaseRunning = false;
 
 /* ---------------------------------------------------------------------
    Tile type descriptions
@@ -162,11 +163,28 @@ function requestGuestMove(action){
     }
   });
 }
+function requestGuestSpawn(tile){
+  const session = gameState.session;
+  if (session?.role !== 'guest' || pendingGuestMoveResolve) return Promise.resolve(null);
+  return new Promise(resolve => {
+    pendingGuestMoveResolve = accepted => resolve(accepted ? tile : null);
+    if (!session.requestAction({ type: 'spawn', tile }, session.nextRequestSeq)) {
+      pendingGuestMoveResolve = null;
+      resolve(null);
+    }
+  });
+}
 function startGuestMovePhase(){
   const session = gameState.session;
   if (session?.role !== 'guest' || session.phase !== 'move1' || session.activeSeat !== session.localSeat || guestMovePhaseRunning || gameState.gameOver) return;
   guestMovePhaseRunning = true;
   runMovePhase(ruleContext(), session.localSeat, true).catch(error => console.error('Guest move phase failed:', error)).finally(() => { guestMovePhaseRunning = false; });
+}
+function startGuestSpawnPhase(){
+  const session = gameState.session;
+  if (session?.role !== 'guest' || session.phase !== 'spawn' || session.activeSeat !== session.localSeat || guestSpawnPhaseRunning || gameState.gameOver) return;
+  guestSpawnPhaseRunning = true;
+  runStartPhase(ruleContext(), session.localSeat).catch(error => console.error('Guest spawn phase failed:', error)).finally(() => { guestSpawnPhaseRunning = false; });
 }
 function ruleContext(){return {players:()=>gameState.players,troops:()=>gameState.troops,tiles:()=>gameState.tiles,countTiles,getTile,isLocked,getStats,isEmptyTile,neighbors,sleep,log,coloredName,cssColor,createTroop,destroyTroop,waitFor,validateIntent,updateHUD,document,hexSize:HEX_SIZE,axialToPixel:(q,r)=>axialToPixel(q,r,HEX_SIZE),boardX,boardY,burst,winScore:gameState.winScore,setGameOver:value=>{gameState.gameOver=value;},showVictory,weights:AIW,cpuChooseSpawnTile:(_pi,options)=>chooseCpuSpawnTile({getTile},options),waitForSpawn:chooseSpawnTileHuman,hasLegalMove,hasLegalAttack,daggerAvailable,gameOver:()=>gameState.gameOver,performSacrifice,executeMove,executeAttack,clearHighlights,multiplayerRole:gameState.session?.role,requestGuestMove,actionApplied:action=>{const session=gameState.session;if(session?.role==='host')session.publishAccepted(action,{type:action.type},session.createSnapshot(gameState));},setDecision:(seat,phase)=>{const session=gameState.session;if(!session)return;session.setDecision({seat,phase});if(session.role==='host')session.publishSnapshot(session.createSnapshot(gameState));},moveDecision:(pi,isPreCombat)=>CPU_MOVE_TREE({pi,isPreCombat}),combatDecision:pi=>CPU_COMBAT_TREE({pi})};}
 function daggerAvailable(pi){return combatDaggerAvailable({countTiles,troops:()=>gameState.troops},pi);}
@@ -208,6 +226,8 @@ function log(msg){ hud.log(msg); }
 function showHostDisconnected(){
   gameState.gameOver = true;
   localActions.cancel();
+  pendingGuestMoveResolve?.(false);
+  pendingGuestMoveResolve = null;
   gameState.multiplayerCoordinator?.close();
   const title = document.getElementById('victory-title');
   const message = document.getElementById('victory-text');
@@ -226,6 +246,21 @@ async function startPhase(pi){
 }
 
 function chooseSpawnTileHuman(options,pi=gameState.currentPlayerIndex){
+  if (gameState.session?.role === 'guest') {
+    const session = gameState.session;
+    return new Promise(resolve => {
+      const choose = async () => {
+        const intent = await waitFor('spawnChoice', pi, options);
+        clearHighlights();
+        const checked = validateIntent(intent, 'spawn', pi, options);
+        if (!checked) { resolve(options[0]); return; }
+        resolve(await requestGuestSpawn(checked.coord));
+      };
+      document.getElementById('skip-btn').disabled = true;
+      highlightSpawnOptions(options);
+      choose();
+    });
+  }
   document.getElementById('skip-btn').disabled = true;
   const promise = waitFor('spawnChoice', pi, options);
   highlightSpawnOptions(options);
@@ -316,17 +351,21 @@ const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMa
       const coordinator = new SessionCoordinator({ role, matchId, localSeat: local, onMessage: ({ seat, message }) => {
         if (message.type === 'actionRequest' && role === 'host' && gameState.session) {
           const action = message.payload;
+          const phase = gameState.session.phase;
+          const intent = action.type === 'spawn' && phase === 'spawn'
+            ? { type: 'spawn', q: action.tile.q, r: action.tile.r }
+            : action.type === 'move' && phase === 'move1'
+              ? { type: 'move', troopId: action.troopId, q: action.to.q, r: action.to.r }
+              : action.type === 'pass' && phase === 'move1' ? { type: 'skip' } : null;
+          const pendingKind = phase === 'spawn' ? 'spawnChoice' : 'move';
           const pending = localActions.current();
-          const intent = action.type === 'move' && gameState.session.phase === 'move1'
-            ? { type: 'move', troopId: action.troopId, q: action.to.q, r: action.to.r }
-            : action.type === 'pass' && gameState.session.phase === 'move1' ? { type: 'skip' } : null;
-          const checked = intent && validateIntent(intent, 'move', seat);
+          const checked = intent && validateIntent(intent, phase === 'spawn' ? 'spawn' : 'move', seat, pending?.options || []);
           const requestSeq = (gameState.session.lastRequestSeq.get(seat) || 0) + 1;
           let rejection = null;
           if (message.rateLimited) rejection = 'RATE_LIMITED';
           else if (gameState.session.roster?.[seat]?.controller !== 'guest') rejection = 'NOT_YOUR_SEAT';
-          else if (gameState.session.activeSeat !== seat || pending?.playerIndex !== seat || pending?.kind !== 'move') rejection = 'NOT_YOUR_TURN';
-          else if (gameState.session.phase !== 'move1') rejection = 'WRONG_PHASE';
+          else if (gameState.session.activeSeat !== seat || pending?.playerIndex !== seat || pending?.kind !== pendingKind) rejection = 'NOT_YOUR_TURN';
+          else if (!['move1', 'spawn'].includes(phase)) rejection = 'WRONG_PHASE';
           else if (!checked) rejection = 'ILLEGAL_ACTION';
           if (rejection) coordinator.sendTo(seat, 'actionRejected', { requestSeq, code: rejection });
           else {
@@ -352,7 +391,7 @@ const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMa
             pendingGuestMoveResolve = null;
             resolve(true);
           }
-          if (accepted) startGuestMovePhase();
+          if (accepted) { startGuestSpawnPhase(); startGuestMovePhase(); }
         }
         if (message.type === 'actionRejected' && role === 'guest') {
           if (!gameState.session) return;
@@ -360,7 +399,7 @@ const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMa
           const resolve = pendingGuestMoveResolve;
           pendingGuestMoveResolve = null;
           resolve?.(false);
-          gameState.session.onStatus(`Host rejected the move (${message.payload.code}).`);
+          gameState.session.onStatus(`Host rejected the action (${message.payload.code}).`);
         }
         if (message.type === 'disconnect') gameState.session?.peerDisconnected(seat);
       }, onPeerState: (seat, status) => {
