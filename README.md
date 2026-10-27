@@ -8,6 +8,13 @@ Serve the repository root over HTTP so the browser can load ES modules, Phaser, 
 python3 -m http.server 8000
 ```
 
+For multiplayer, also run the short-lived signaling relay in a second terminal:
+
+```sh
+npm install
+npm run signaling
+```
+
 Then open <http://localhost:8000>. ES modules require HTTP(S); opening `index.html` directly with `file://` will not work.
 
 ## Build for Itch.io
@@ -18,23 +25,23 @@ The build script uses Python's standard library and does not require installing 
 
 ## Browser checks
 
-Install the development dependency once with `npm install`. In one terminal, run `npm run serve`; in another, run `npm run cypress:run` for headless checks or `npm run cypress:open` to use the Cypress runner. The checks exercise start-screen settings, Phaser startup and HUD, help and credits, canvas/UI resizing, victory presentation, and restart behavior.
+Install dependencies once with `npm install`. Run `npm run serve` for the game and `npm run signaling` for the invite relay. Run `npm run cypress:run` for headless checks or `npm run cypress:open` to use the Cypress runner. Run `npm run test:signaling` to check relay invite creation, automatic answer forwarding, and one-use room cleanup.
 
 ## Multiplayer
 
 Private multiplayer matches support one host and up to two guests, with any remaining seats controlled by the CPU. The host owns the authoritative game state and resolves all actions and victory; guests submit choices for their assigned seats and apply the host's approved updates.
 
-To start a match, serve the game over HTTP(S), open **Multiplayer** from the start screen, and follow the lobby controls:
+To start a match, serve the game over HTTP(S) and run the signaling service (`npm run signaling`) on a reachable host. Open **Multiplayer** from the start screen and follow the lobby controls:
 
 1. The host chooses a seat and sets each other seat to **CPU** or **Open to guest**. Create a separate invite for each open seat.
-2. Send each invite code directly to its intended player. An invite grants access to that seat, so keep it private.
-3. Each guest pastes the invite, prepares an answer, checks and confirms the assigned seat, then sends the answer code back to the host.
-4. The host pastes each answer into the matching seat and starts the match after all open seats are connected. Guests join after confirming their seat; gameplay updates come from the host.
+2. Send each short invite code directly to its intended player. An invite grants access to that seat, so keep it private.
+3. Each guest enters the invite, confirms the assigned seat, and joins. The signaling service automatically returns the WebRTC answer to the host.
+4. The host starts the match after all invited seats connect; gameplay updates come from the host.
 
-Codes are exchanged manually. There is no matchmaking, room directory, or signaling service. If a guest disconnects, the host can create a fresh invite for that seat, replace the guest with a CPU, or end the match. If the host disconnects, the match ends; guests can restart into solo setup. A victory declared by the host is shown to all connected guests.
+The signaling service only brokers short-lived WebRTC setup descriptions. It does not carry gameplay traffic or store match state. Rooms expire after ten minutes and are removed after the answer is relayed. The included relay keeps room data in memory and binds to loopback by default; a remote deployment should expose it through a TLS reverse proxy and route `/signal` to the signaling process. Set `SIGNALING_HOST=0.0.0.0` only when the deployment needs the process to accept connections beyond loopback. Set `globalThis.MANA_SURGE_SIGNALING_URL` before loading the game to use a different WebSocket URL. There is no matchmaking, room directory, or persistent lobby. If a guest disconnects, the host can create a fresh invite for that seat, replace the guest with a CPU, or end the match. If the host disconnects, the match ends; guests can restart into solo setup. A victory declared by the host is shown to all connected guests.
 
-The game requires a modern browser with ES module and WebRTC `RTCPeerConnection`/data-channel support. Use HTTP(S); `localhost` is suitable for local testing, while remote deployments should use HTTPS. Clipboard access may depend on browser permissions, and codes can always be selected and copied from the lobby field.
+The game requires a modern browser with ES module and WebRTC `RTCPeerConnection`/data-channel support, plus the signaling service for initial invite exchange. Use HTTP(S); `localhost` is suitable for local testing, while remote deployments should use HTTPS/WSS. Clipboard access may depend on browser permissions, and invite codes can always be selected and copied from the lobby field.
 
 The lobby does not configure STUN or TURN servers. Direct connections can fail behind some NATs and firewalls, and same-network success does not establish cross-network reachability. STUN may improve peer discovery; TURN can relay traffic but requires an explicitly operated service and sends traffic through that relay operator. The current lobby does not expose ICE server configuration, so deployments needing TURN require a code/configuration change.
 
-WebRTC encrypts data in transit, but invite codes do not establish real-world identity. The host-authoritative design is intended for private casual matches: guests cannot directly write the host's state, but a dishonest host can falsify the match. The game does not use accounts or a matchmaking backend. Do not share invite or answer codes publicly.
+WebRTC encrypts data in transit, but invite codes do not establish real-world identity. The host-authoritative design is intended for private casual matches: guests cannot directly write the host's state, but a dishonest host can falsify the match. The game does not use accounts or a matchmaking backend. Do not share invite codes publicly.

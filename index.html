@@ -70,7 +70,7 @@
       <div class="modal-shell"><div class="modal-box lobby-box">
         <button class="modal-close-x" id="lobby-close" aria-label="Close">&times;</button>
         <h2>Private Multiplayer</h2>
-        <p>Connection codes grant access to a seat. Share them only with players you intend to invite. Codes are exchanged manually; direct connections may fail on some networks without a TURN relay.</p>
+        <p>Invite codes grant access to a seat. Share them only with intended players. A signaling relay automatically exchanges connection setup data; gameplay remains peer-to-peer. Direct connections may fail on some networks without a TURN relay.</p>
         <div class="lobby-columns">
           <section><h3>Host a match</h3>
             <label>Host seat</label><div class="lobby-row">
@@ -82,11 +82,10 @@
             <select class="seat-mode" data-seat="2"><option value="cpu">CPU</option><option value="guest">Open to guest</option></select>
             <label for="invite-seat">Invite seat</label><select id="invite-seat"></select>
             <button class="game-btn" id="host-create-btn">Create invite</button>
-            <label for="host-answer">Guest answer code</label><textarea id="host-answer" rows="3" maxlength="100000"></textarea><button class="game-btn" id="host-answer-btn">Apply answer</button>
             <button class="game-btn primary" id="lobby-start-match">Start match</button>
           </section>
-          <section><h3>Join a match</h3><label for="guest-offer">Host invite code</label><textarea id="guest-offer" rows="5" maxlength="100000"></textarea>
-            <button class="game-btn" id="guest-prepare-btn">Prepare answer</button><button class="game-btn" id="guest-seat-confirm">Confirm seat</button><button class="game-btn primary" id="guest-join-btn">Join match</button>
+          <section><h3>Join a match</h3><label for="guest-offer">Host invite code</label><textarea id="guest-offer" rows="2" maxlength="100"></textarea>
+            <button class="game-btn" id="guest-prepare-btn">Join invite</button><button class="game-btn" id="lobby-seat-confirm">Confirm seat</button><button class="game-btn primary" id="guest-join-btn">Join match</button>
           </section>
         </div>
         <div id="lobby-status" role="status" aria-live="polite">Choose host or guest to begin.</div>

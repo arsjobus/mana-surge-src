@@ -136,15 +136,35 @@ function applyHostSnapshot(snapshot){
     troopCoords.add(coordKey);
   }
   if (snapshot.nextTroopId <= Math.max(0, ...troopIds) || snapshot.players.some(player => !Number.isSafeInteger(player.mana) || !Number.isSafeInteger(player.actionPoints) || !player.spawner || !Number.isInteger(player.spawner.q) || !Number.isInteger(player.spawner.r))) return false;
+  // Keep sprites for troops that still exist. Recreating every token for every
+  // accepted action can leave tween artifacts, and used to assign a temporary
+  // troop ID before replacing it with the host ID.
+  const existing = new Map(gameState.troops.map(troop => [troop.id, troop]));
   for (const tile of gameState.tiles.values()) tile.occupantId = null;
-  for (const troop of gameState.troops) { troop.sprite?.destroy(); troop.selSprite?.destroy(); }
   gameState.troops = [];
   snapshot.players.forEach((player, i) => Object.assign(gameState.players[i], { mana: player.mana, actionPoints: player.actionPoints, spawner: { ...player.spawner } }));
   for (const item of snapshot.tiles) Object.assign(getTile(item.q,item.r), { type: item.type, occupantId: null });
   for (const item of snapshot.troops) {
-    const troop = createTroop(item.owner, item.q, item.r, false);
-    troop.id = item.id;
+    let troop = existing.get(item.id);
+    if (troop) {
+      existing.delete(item.id);
+      troop.owner = item.owner;
+      troop.q = item.q;
+      troop.r = item.r;
+      const pixel = axialToPixel(item.q, item.r, HEX_SIZE);
+      const x = boardX(pixel.x), y = boardY(pixel.y);
+      for (const sprite of [troop.sprite, troop.glow, troop.lockSprite, troop.selSprite, troop.statText]) sprite?.setPosition(x, y);
+      refreshLockVisual(troop);
+      gameState.troops.push(troop);
+    } else {
+      troop = createTroop(item.owner, item.q, item.r, false);
+      troop.id = item.id;
+    }
     getTile(item.q,item.r).occupantId = item.id;
+  }
+  for (const troop of existing.values()) {
+    troop._lockTween?.stop();
+    for (const sprite of [troop.sprite, troop.glow, troop.lockSprite, troop.selSprite, troop.statText]) sprite?.destroy();
   }
   gameState.nextTroopId = snapshot.nextTroopId;
   gameState.winScore = snapshot.winScore;
@@ -495,6 +515,7 @@ const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMa
         onEnd: result => { if (result.reason === 'hostDisconnected') showHostDisconnected(); },
         onGuestDisconnect: showGuestDisconnected
       });
+      if (role === 'host') coordinator.broadcast('matchStarted', {});
       if (role === 'guest' && peer.channel?.readyState === 'open') coordinator.startHandshake(hostSeat);
     } else {
       gameState.players=COLOR_META.map((c,i)=>({...c,human:i===gameState.humanColorIndex,mana:0,actionPoints:1}));

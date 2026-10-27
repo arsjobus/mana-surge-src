@@ -1,45 +1,49 @@
 import { WebRtcPeer } from './WebRtcPeer.js';
-import { SessionCoordinator } from './SessionCoordinator.js';
-import { exportSignalingCode, importSignalingCode } from './SignalingCode.js';
+import { createSignalingInvite, joinSignalingInvite } from './SignalingClient.js';
 
-const encode = value => `mana-room1.${btoa(unescape(encodeURIComponent(JSON.stringify(value)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')}`;
-function decode(code, expected) {
-  try {
-    if (typeof code !== 'string' || code.length > 100_000 || !code.startsWith('mana-room1.')) return null;
-    const raw = code.slice(11).replace(/-/g, '+').replace(/_/g, '/');
-    const value = JSON.parse(decodeURIComponent(escape(atob(raw + '='.repeat((4 - raw.length % 4) % 4)))));
-    return value?.v === 1 && value.type === expected ? value : null;
-  } catch { return null; }
-}
+const INVITE_PREFIX = 'mana-join-';
 
-/** UI and signaling lifecycle for the manual host/guest lobby. */
+/** Start a private match through the configured short-lived signaling relay. */
 export function setupMultiplayerLobby({ state, onStartMatch = () => {} }) {
   const modal = document.getElementById('multiplayer-modal');
   const status = document.getElementById('lobby-status');
   const result = document.getElementById('lobby-code-result');
   const output = document.getElementById('lobby-code-output');
-  const coordinatorRef = { current: null };
   const hostPeers = new Map();
+  const inviteSessions = new Map();
   let guestPeer = null;
+  let guestSignal = null;
+  let guestSeatConfirmed = false;
+  let guestMatchStarted = false;
+  let guestStartTriggered = false;
+  let operation = 0;
   let role = null;
-  let roster = null;
-  let confirmed = false;
+
   const setStatus = message => { status.textContent = message; };
-  const setOutput = (title, code) => {
+  const setOutput = (title, value) => {
     result.hidden = false;
     document.getElementById('lobby-code-title').textContent = title;
-    output.value = code;
+    output.value = value;
     output.focus(); output.select();
   };
+  const startConfirmedGuest = () => {
+    if (role !== 'guest' || guestStartTriggered || !guestSeatConfirmed || !guestMatchStarted || !state.multiplayer || !guestPeer) return;
+    guestStartTriggered = true;
+    document.getElementById('guest-join-btn').hidden = true;
+    onStartMatch(state.multiplayer);
+  };
   const closeSessions = () => {
-    coordinatorRef.current?.close(); coordinatorRef.current = null;
+    operation++;
+    for (const invite of inviteSessions.values()) invite.close();
+    inviteSessions.clear();
     for (const peer of hostPeers.values()) peer.close();
     hostPeers.clear();
+    guestSignal?.close(); guestSignal = null;
     guestPeer?.close(); guestPeer = null;
   };
   const open = () => { modal.style.display = 'flex'; setStatus('Choose host or guest to begin.'); };
   document.getElementById('lobby-close').addEventListener('click', () => { closeSessions(); modal.style.display = 'none'; });
-  document.getElementById('lobby-cancel').addEventListener('click', () => { closeSessions(); role = null; confirmed = false; result.hidden = true; setStatus('Lobby cancelled.'); });
+  document.getElementById('lobby-cancel').addEventListener('click', () => { closeSessions(); role = null; result.hidden = true; setStatus('Lobby cancelled.'); });
 
   document.querySelectorAll('.host-seat-btn').forEach(button => button.addEventListener('click', () => {
     state.humanColorIndex = Number(button.dataset.seat);
@@ -57,86 +61,123 @@ export function setupMultiplayerLobby({ state, onStartMatch = () => {} }) {
     chooser.innerHTML = openSeats.map(seat => `<option value="${seat}">${['Red', 'Blue', 'Green'][seat]}</option>`).join('');
     chooser.disabled = !openSeats.length;
   }
+  document.querySelectorAll('.seat-mode').forEach(select => select.addEventListener('change', refreshInviteSeats));
+  refreshInviteSeats();
+
+  async function createInvite(seat, config, attempt = operation) {
+    if (hostPeers.has(seat)) throw new Error('That seat already has an invite.');
+    const peer = new WebRtcPeer({ role: 'host', matchId: config.matchId, localSeat: config.hostSeat, remoteSeat: seat,
+      onState: value => setStatus(`Seat ${seat + 1}: ${value}`), onError: () => setStatus(`Seat ${seat + 1}: connection error.`) });
+    hostPeers.set(seat, peer);
+    const coordinator = state.multiplayerCoordinator;
+    if (coordinator) {
+      if (coordinator.peers.has(seat)) coordinator.replacePeer(seat, peer);
+      else coordinator.addPeer(seat, peer);
+    }
+    try {
+      const offer = await peer.createOffer();
+      if (attempt !== operation || hostPeers.get(seat) !== peer) { peer.close(); return; }
+      const invite = await createSignalingInvite({ matchId: config.matchId, hostSeat: config.hostSeat, seat,
+        score: state.winScore, offer, onStatus: setStatus });
+      if (attempt !== operation || hostPeers.get(seat) !== peer) { invite.close(); peer.close(); return; }
+      inviteSessions.set(seat, invite);
+      setOutput(`Invite for ${['Red', 'Blue', 'Green'][seat]}`, `${INVITE_PREFIX}${invite.code}`);
+      setStatus(`Invite ready for ${['Red', 'Blue', 'Green'][seat]}. Send it to the intended player.`);
+      invite.waitForAnswer().then(({ seat: answerSeat, answer }) => {
+        if (answerSeat !== seat || hostPeers.get(seat) !== peer) return;
+        return peer.acceptAnswer(answer).then(() => setStatus(`Seat ${seat + 1}: connecting directly…`));
+      }).catch(error => {
+        if (hostPeers.get(seat) === peer) setStatus(`Seat ${seat + 1}: ${error.message}`);
+      }).finally(() => inviteSessions.delete(seat));
+    } catch (error) {
+      if (hostPeers.get(seat) === peer) hostPeers.delete(seat);
+      peer.close();
+      throw error;
+    }
+  }
+
   async function retryGuest(seat) {
     const config = state.multiplayer;
     if (role !== 'host' || !config || !Number.isInteger(seat) || config.roster?.[seat]?.controller !== 'guest') return false;
-    const previous = hostPeers.get(seat);
-    if (previous) { previous.onState = () => {}; previous.close(); }
-    hostPeers.delete(seat);
+    hostPeers.get(seat)?.close(); hostPeers.delete(seat);
+    inviteSessions.get(seat)?.close(); inviteSessions.delete(seat);
     try {
-      const peer = new WebRtcPeer({ role: 'host', matchId: config.matchId, localSeat: config.hostSeat, remoteSeat: seat,
-        onState: value => setStatus(`Seat ${seat + 1}: ${value}`), onError: () => setStatus(`Seat ${seat + 1}: connection error.`) });
-      hostPeers.set(seat, peer);
-      if (coordinatorRef.current?.peers.has(seat)) coordinatorRef.current.replacePeer(seat, peer);
-      else coordinatorRef.current?.addPeer(seat, peer);
-      const offer = await peer.createOffer();
-      setOutput(`Fresh host invite for ${['Red', 'Blue', 'Green'][seat]}`, encode({ v: 1, type: 'offer', matchId: config.matchId, hostSeat: config.hostSeat, seat, score: state.winScore, offer }));
-      setStatus(`Fresh invite ready for ${['Red', 'Blue', 'Green'][seat]}. Ask the same player to prepare an answer and return it here.`);
+      await createInvite(seat, config);
+      setStatus(`Fresh invite ready for ${['Red', 'Blue', 'Green'][seat]}.`);
       return true;
-    } catch (error) {
-      hostPeers.delete(seat);
-      setStatus(`Could not recreate the connection: ${error.message}`);
-      return false;
-    }
+    } catch (error) { setStatus(`Could not recreate the connection: ${error.message}`); return false; }
   }
-  document.querySelectorAll('.seat-mode').forEach(select => select.addEventListener('change', refreshInviteSeats));
-  refreshInviteSeats();
+
   document.getElementById('host-create-btn').addEventListener('click', async () => {
     const reuse = role === 'host' && state.multiplayer;
     if (!reuse) closeSessions();
-    role = 'host'; confirmed = true;
+    role = 'host';
     const hostSeat = state.humanColorIndex;
     const openSeats = [...document.querySelectorAll('.seat-mode')].filter(select => select.value === 'guest').map(select => Number(select.dataset.seat)).filter(seat => seat !== hostSeat);
-    const cpuSeats = [0, 1, 2].filter(seat => seat !== hostSeat && !openSeats.includes(seat));
-    roster = [0, 1, 2].map(seat => ({ seat, controller: seat === hostSeat ? 'host' : openSeats.includes(seat) ? 'guest' : 'cpu' }));
-    const matchId = reuse ? state.multiplayer.matchId : crypto.randomUUID();
-    state.multiplayer = { role, hostSeat, roster, matchId, peers: hostPeers };
-    state.multiplayer.retryGuest = retryGuest;
+    const roster = [0, 1, 2].map(seat => ({ seat, controller: seat === hostSeat ? 'host' : openSeats.includes(seat) ? 'guest' : 'cpu' }));
+    const config = state.multiplayer = { role, hostSeat, roster, matchId: reuse ? state.multiplayer.matchId : crypto.randomUUID(), peers: hostPeers };
+    config.retryGuest = retryGuest;
+    config.reopenLobby = open;
     document.getElementById('lobby-start-match').onclick = () => {
-      if (openSeats.some(openSeat => !hostPeers.has(openSeat))) return setStatus('Create an invite for each open guest seat, or change that seat to CPU.');
-      const notConnected = openSeats.filter(openSeat => hostPeers.get(openSeat)?.channel?.readyState !== 'open');
-      if (notConnected.length) return setStatus(`Waiting for ${notConnected.map(seat => ['Red', 'Blue', 'Green'][seat]).join(' and ')} to connect. Ask them to prepare the invite and return their answer code first.`);
-      onStartMatch(state.multiplayer);
+      if (openSeats.some(seat => !hostPeers.has(seat))) return setStatus('Create an invite for each open guest seat, or change that seat to CPU.');
+      const waiting = openSeats.filter(seat => hostPeers.get(seat)?.channel?.readyState !== 'open');
+      if (waiting.length) return setStatus(`Waiting for ${waiting.map(seat => ['Red', 'Blue', 'Green'][seat]).join(' and ')} to connect.`);
+      onStartMatch(config);
     };
     const seat = Number(document.getElementById('invite-seat').value);
-    if (!document.getElementById('invite-seat').value) { setStatus('All seats are ready as host/CPU. Start the match when ready.'); return; }
-    if (!openSeats.includes(seat) || hostPeers.has(seat)) { setStatus('That seat already has an invite. Choose another open seat.'); return; }
-    try {
-      const peer = new WebRtcPeer({ role: 'host', matchId, localSeat: hostSeat, remoteSeat: seat, onState: value => setStatus(`Seat ${seat + 1}: ${value}`), onError: () => setStatus(`Seat ${seat + 1}: connection error.`) });
-      hostPeers.set(seat, peer);
-      const offer = await peer.createOffer();
-      setOutput(`Host invite for ${['Red', 'Blue', 'Green'][seat]}`, encode({ v: 1, type: 'offer', matchId, hostSeat, seat, score: state.winScore, offer }));
-      setStatus(`Offer ready for ${['Red', 'Blue', 'Green'][seat]}. Share it only with the intended player.`);
-    } catch (error) { setStatus(`Could not create invite: ${error.message}`); }
-    document.getElementById('host-answer-btn').onclick = async () => {
-      const data = decode(document.getElementById('host-answer').value.trim(), 'answer');
-      const target = data && hostPeers.get(data.seat);
-      if (!data || !target || data.matchId !== matchId) return setStatus('That answer code is invalid, expired, or for another seat.');
-      try { await target.acceptAnswer(data.answer); setStatus(`Seat ${data.seat + 1}: connecting. The guest will synchronize from the host before acting.`); }
-      catch { setStatus('Could not apply answer. Create a fresh invite and try again.'); }
-    };
+    if (!document.getElementById('invite-seat').value) return setStatus('All seats are ready as host/CPU. Start the match when ready.');
+    if (!openSeats.includes(seat)) return setStatus('Choose an open guest seat.');
+    try { await createInvite(seat, config, operation); }
+    catch (error) { setStatus(`Could not create invite: ${error.message}`); }
   });
 
   document.getElementById('guest-prepare-btn').addEventListener('click', async () => {
-    closeSessions(); role = 'guest'; confirmed = false;
-    const data = decode(document.getElementById('guest-offer').value.trim(), 'offer');
-    if (!data || ![0, 1, 2].includes(data.seat) || ![0, 1, 2].includes(data.hostSeat) || data.seat === data.hostSeat || !importSignalingCode(exportSignalingCode(data.offer), 'offer')) return setStatus('Invalid or unsupported host invite code.');
+    const attempt = ++operation;
+    guestSignal?.close(); guestSignal = null;
+    guestPeer?.close(); guestPeer = null;
+    role = 'guest';
     try {
-      guestPeer = new WebRtcPeer({ role: 'guest', matchId: data.matchId, localSeat: data.seat, remoteSeat: data.hostSeat, onState: value => setStatus(`Connection: ${value}`), onError: () => setStatus('Connection error.') });
-      const answer = await guestPeer.acceptOffer(data.offer);
-      state.multiplayer = { role, hostSeat: data.hostSeat, localSeat: data.seat, matchId: data.matchId, winScore: data.score, peer: guestPeer };
-      setOutput(`You are joining as ${['Red', 'Blue', 'Green'][data.seat]}`, encode({ v: 1, type: 'answer', matchId: data.matchId, seat: data.seat, answer }));
-      document.getElementById('guest-seat-confirm').textContent = `Confirm ${['Red', 'Blue', 'Green'][data.seat]} seat`;
-      document.getElementById('guest-seat-confirm').onclick = () => { confirmed = true; setStatus('Seat confirmed. Return the answer code to the host and wait for the match to start.'); };
-      document.getElementById('guest-join-btn').onclick = () => confirmed ? onStartMatch(state.multiplayer) : setStatus('Confirm your assigned seat first.');
-      document.getElementById('guest-seat-confirm').hidden = false;
-      document.getElementById('guest-join-btn').hidden = false;
-      setStatus(`Host assigned you the ${['Red', 'Blue', 'Green'][data.seat]} seat. Check before confirming.`);
-    } catch (error) { setStatus(`Could not prepare guest connection: ${error.message}`); }
+      const code = document.getElementById('guest-offer').value.trim().replace(/^mana-join-/, '');
+      if (!/^[A-Za-z0-9_-]{10,16}$/.test(code)) throw new Error('Enter a valid invite code.');
+      const signal = await joinSignalingInvite(code);
+      if (attempt !== operation) { signal.close(); return; }
+      guestSignal = signal;
+      const { offer, matchId, seat, hostSeat, score } = guestSignal;
+      if (![0, 1, 2].includes(seat) || ![0, 1, 2].includes(hostSeat) || seat === hostSeat) throw new Error('Invalid invite seat.');
+      guestPeer = new WebRtcPeer({ role: 'guest', matchId, localSeat: seat, remoteSeat: hostSeat,
+        onState: value => setStatus(`Connection: ${value}`), onError: () => setStatus('Connection error.') });
+      const answer = await guestPeer.acceptOffer(offer);
+      if (attempt !== operation) { guestSignal.close(); guestPeer.close(); return; }
+      if (!guestSignal.submitAnswer(answer)) throw new Error('Could not return the connection answer.');
+      state.multiplayer = { role, hostSeat, localSeat: seat, matchId, winScore: score, peer: guestPeer };
+      guestSeatConfirmed = false;
+      guestMatchStarted = false;
+      guestStartTriggered = false;
+      guestPeer.onMessage = message => {
+        if (message.type !== 'matchStarted') return;
+        guestMatchStarted = true;
+        startConfirmedGuest();
+      };
+      setOutput(`You are joining as ${['Red', 'Blue', 'Green'][seat]}`, `Seat: ${['Red', 'Blue', 'Green'][seat]}`);
+      document.getElementById('lobby-seat-confirm').textContent = `Confirm ${['Red', 'Blue', 'Green'][seat]} seat`;
+      document.getElementById('lobby-seat-confirm').hidden = false;
+      document.getElementById('guest-join-btn').hidden = true;
+      document.getElementById('lobby-seat-confirm').onclick = () => {
+        guestSeatConfirmed = true;
+        setStatus(`Seat confirmed. The match will start automatically when the host starts.`);
+        startConfirmedGuest();
+      };
+      setStatus(`Connected to the invite service. The answer was returned to the host automatically. Confirm your ${['Red', 'Blue', 'Green'][seat]} seat.`);
+    } catch (error) { setStatus(error.message); }
   });
-  document.getElementById('lobby-copy-btn').addEventListener('click', async () => { try { await navigator.clipboard.writeText(output.value); setStatus('Connection code copied.'); } catch { setStatus('Select and copy the connection code.'); } });
+
+  document.getElementById('lobby-copy-btn').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(output.value); setStatus('Invite copied.'); }
+    catch { setStatus('Select and copy the invite.'); }
+  });
   document.getElementById('lobby-start-match').hidden = false;
-  document.getElementById('guest-seat-confirm').hidden = true;
+  document.getElementById('lobby-seat-confirm').hidden = true;
   document.getElementById('guest-join-btn').hidden = true;
+  document.getElementById('guest-join-btn').disabled = false;
   return { open, close: closeSessions, retryGuest };
 }

@@ -42,6 +42,9 @@ describe('multiplayer protocol and host authorization', () => {
     expect(decodeMessage(encoded, { matchId: 'different_match_12345', senderSeat: 1 })).to.equal(null);
     expect(decodeMessage(encoded, { matchId: message.matchId, senderSeat: 2 })).to.equal(null);
     expect(decodeMessage('{"not":"a protocol message"}')).to.equal(null);
+
+    const matchStarted = { ...message, senderSeat: 0, type: 'matchStarted', payload: {} };
+    expect(decodeMessage(encodeMessage(matchStarted), { matchId: message.matchId, senderSeat: 0 })).to.deep.equal(matchStarted);
   });
 
   it('accepts a host victory result once and rejects invalid or duplicate match endings', () => {
@@ -339,8 +342,8 @@ describe('multiplayer lobby UI', () => {
   it('reports malformed host invite codes without starting a guest session', () => {
     cy.get('#guest-offer').type('not-a-mana-surge-invite');
     cy.get('#guest-prepare-btn').click();
-    cy.get('#lobby-status').should('have.text', 'Invalid or unsupported host invite code.');
-    cy.get('#guest-seat-confirm').should('not.be.visible');
+    cy.get('#lobby-status').should('have.text', 'Enter a valid invite code.');
+    cy.get('#lobby-seat-confirm').should('not.be.visible');
     cy.get('#guest-join-btn').should('not.be.visible');
   });
 });

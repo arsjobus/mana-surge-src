@@ -4,10 +4,15 @@
   "scripts": {
     "build:itch": "python3 scripts/build-itch.py",
     "serve": "python3 -m http.server 8000",
+    "signaling": "node server/signaling.js",
+    "test:signaling": "node scripts/test-signaling.cjs",
     "cypress:open": "cypress open",
     "cypress:run": "cypress run"
   },
   "devDependencies": {
     "cypress": "^15.7.0"
+  },
+  "dependencies": {
+    "ws": "^8.22.0"
   }
 }

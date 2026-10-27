@@ -6,11 +6,11 @@ Add online matches for up to three human players using the existing three game s
 
 This roadmap targets casual private matches. A host-authoritative peer-to-peer game prevents ordinary clients from directly writing authoritative state, but it cannot prevent a malicious host from changing the game or guarantee competitive anti-cheat. No account system, matchmaking, public lobby directory, or server-side persistence is in scope for the initial version.
 
-## Is serverless multiplayer possible?
+## Signaling and connectivity
 
-Yes, with practical limits. Use browser WebRTC data channels for game messages. WebRTC does not define how peers find each other or exchange connection setup data, so a no-central-server launch flow must exchange offers, answers, and ICE candidates out of band. The first version can provide copy/paste connection codes (and optionally QR codes) between the host and each joining player. The host can form a small star topology with one direct connection per guest; this suits three seats and keeps game traffic simple.
+Gameplay remains peer-to-peer over browser WebRTC data channels, but WebRTC needs signaling to exchange connection setup data. To keep joining simple, provide a small signaling relay: the host creates a short invite, the guest joins it, and the relay automatically returns the guest's answer to the host. The host forms a small star topology with one direct connection per guest; the relay does not carry game messages or own game state.
 
-Direct connectivity is not guaranteed across every NAT, firewall, or browser network. STUN can help peers discover usable routes, but some network combinations require a TURN relay. TURN carries traffic through a server, so it is not strictly serverless. The app should report connection failure clearly and document this tradeoff. Manual signaling avoids operating a signaling service, but is less convenient than a room-code lobby.
+Direct connectivity is not guaranteed across every NAT, firewall, or browser network. STUN can help peers discover usable routes, but some network combinations require a TURN relay. TURN carries gameplay traffic through a server and has bandwidth/cost implications. The app should report connection failure clearly and document this tradeoff. The signaling relay stores setup messages only in memory, expires invites quickly, and deletes them after the answer is relayed.
 
 WebRTC encrypts data in transit, but encryption does not authenticate a real-world identity. A private invite code is a connection secret, not proof of who joined. Treat all remote messages as untrusted, validate them, limit message size/rate, and never execute remote-provided code or HTML. Keep host authority and validation in the game layer rather than trusting a guest's claimed state.
 
@@ -26,7 +26,7 @@ Add networking as a separate transport/session layer. Keep WebRTC objects, conne
 - **Authority:** The host owns the authoritative `GameState`, validates guest actions against the current phase, active seat, legal choices, and game rules, then broadcasts accepted actions and resulting state/version information. Guest clients render the host-approved match and only submit actions for their assigned seat.
 - **Topology:** Host-star for up to two guests. A guest connects only to the host; guests do not send gameplay messages directly to each other.
 - **Transport:** WebRTC `RTCDataChannel` for gameplay messages. Add a small transport interface so turn/rule code can operate without depending directly on WebRTC.
-- **Initial signaling:** Manual exchange of bounded, versioned connection descriptions and ICE candidates. Do not require a signaling backend or lobby service for this milestone.
+- **Initial signaling:** A small WebSocket relay exchanges bounded, versioned WebRTC descriptions for short-lived invites. It never carries gameplay messages or persists match state.
 - **NAT traversal:** Support configurable STUN servers, with no baked-in dependency on an undocumented public service. Explain that STUN does not guarantee connectivity and TURN requires a relay service. Leave TURN configuration as an optional future deployment setting.
 - **Fallback:** Solo play remains available. Do not silently turn a disconnected guest into a CPU or change seat ownership; expose an explicit host action to replace a disconnected guest with a CPU or end the match.
 - **Scope boundary:** No voice/video, spectators, chat, matchmaking, ranked play, persistent accounts, or save/resume in the initial release.
@@ -56,25 +56,25 @@ Implementation: `src/multiplayer/ActionSystem.js` defines serializable intents, 
 
 ### 3. Add a WebRTC transport module
 
-- [x] Add `src/multiplayer/` modules for the WebRTC peer connection, data channel, message codec/validation, session coordinator, and signaling-code import/export.
+- [x] Add `src/multiplayer/` modules for the WebRTC peer connection, data channel, message codec/validation, session coordinator, and signaling relay client.
 - [x] Create one host-to-guest data channel per guest, with ordered reliable delivery for game actions.
 - [x] Apply strict payload size and message-rate limits, validate all parsed messages, and handle malformed input without crashing or mutating the match.
 - [x] Add connection lifecycle handling for connecting, connected, disconnected, failed, and closed states, plus explicit retry/leave paths.
 - [x] Ensure cleanup closes data channels, peer connections, listeners, timers, and any pending UI choices on restart or leaving a match.
 - [x] Keep signaling data short-lived and avoid storing it in local storage or logging it by default.
 
-Implementation: `MessageCodec.js` validates v1 envelopes and action payloads with a 16 KiB message limit. `SignalingCode.js` imports/exports bounded, versioned SDP codes. `WebRtcPeer.js` provides one ordered reliable data channel, lifecycle callbacks, inbound sequence/rate limits, and cleanup; callers supply ICE server configuration (none is silently baked in). `SessionCoordinator.js` manages host-star peer routing, handshake compatibility, and explicit peer teardown. Recreate a peer to retry; call `close()` to leave. Signaling codes remain caller-owned and are never persisted or logged by these modules.
+Implementation: `MessageCodec.js` validates v1 gameplay envelopes and action payloads with a 16 KiB message limit. `SignalingClient.js` exchanges bounded WebRTC descriptions through the short-lived WebSocket relay. `server/signaling.js` holds offer/answer data in memory, expires invites after ten minutes, accepts one guest per invite, and deletes a room after the answer is forwarded. `WebRtcPeer.js` provides one ordered reliable data channel, lifecycle callbacks, inbound sequence/rate limits, and cleanup; callers supply ICE server configuration (none is silently baked in). `SessionCoordinator.js` manages host-star peer routing, handshake compatibility, and explicit peer teardown. Recreate a peer to retry; call `close()` to leave.
 
 ### 4. Add host and guest lobby flows
 
-- [ ] Add a multiplayer choice on the start screen while preserving solo setup and settings.
-- [ ] Let the host select their seat/color, win score, and whether unfilled seats are CPU-controlled or open to guests.
-- [ ] Let the host create a join offer/code for each open guest seat and show connection status and assigned seat.
-- [ ] Let a guest paste/import the host offer, return an answer code, and confirm the assigned seat before joining the match.
-- [ ] Support cancellation, invalid/expired code feedback, duplicate seat rejection, browser refresh/leave behavior, and a clear start-match action once the host is ready.
-- [ ] Make clear in the UI that invite codes grant access to a seat and should only be shared with intended players.
+- [x] Add a multiplayer choice on the start screen while preserving solo setup and settings.
+- [x] Let the host select their seat/color, win score, and whether unfilled seats are CPU-controlled or open to guests.
+- [x] Let the host create a one-code invite for each open guest seat and show connection status and assigned seat.
+- [x] Let a guest enter the host invite, return the WebRTC answer automatically through signaling, and confirm the assigned seat before joining the match.
+- [x] Support cancellation, invalid/expired code feedback, duplicate seat rejection, browser refresh/leave behavior, and a clear start-match action once the host is ready.
+- [x] Make clear in the UI that invite codes grant access to a seat and should only be shared with intended players.
 
-Progress: `src/multiplayer/LobbyUI.js` adds the host/guest lobby, seat and CPU/open-seat controls, per-open-seat offer generation, answer import, guest seat confirmation, cancellation, connection feedback, and copy/paste codes. The lobby keeps match signaling in memory and closes peers when cancelled or closed. The Start/Join controls currently stop at a lobby-ready handoff; authoritative match startup is the next section. Manual browser-to-browser validation remains outstanding.
+Progress: `LobbyUI.js` and `SignalingClient.js` use `server/signaling.js` for one-code invites. The host creates a short-lived invite per open seat; the guest enters it once, confirms the assigned seat, and the answer returns to the host automatically. Manual browser-to-browser validation remains outstanding.
 
 ### 5. Integrate host-authoritative match flow
 
@@ -126,7 +126,7 @@ Coverage: `cypress/e2e/multiplayer.cy.js` checks protocol envelope round trips a
 
 Additional Cypress coverage: `multiplayer.cy.js` checks host seat selection, CPU/open guest seat configuration, lobby cancellation, malformed invite feedback, and deterministic guest seat assignment. Complete multiplayer flow coverage remains outstanding.
 
-The multiplayer Cypress coverage now also exercises the guest handshake and host seat-assignment message through an in-memory fake transport. The full suite passes (15 tests across completion, gameplay, and multiplayer specs); this verifies protocol/session handoff behavior without claiming a live WebRTC match is playable.
+The multiplayer Cypress coverage also exercises the guest handshake and host seat-assignment message through an in-memory fake transport. The full suite passes (23 tests across completion, gameplay, and multiplayer specs). `npm run test:signaling` verifies invite creation, multiple host invites, automatic answer forwarding, and one-use cleanup. These checks do not replace live cross-browser and cross-network testing.
 
 Additional focused Cypress coverage exercises the Move Phase I action request and host-approved snapshot acceptance at the session boundary. Browser-to-browser turn integration and full-match coverage remain outstanding.
 
@@ -138,12 +138,12 @@ Additional focused Cypress coverage exercises the Move Phase I action request an
 - [ ] The host is the sole source of truth for action order, game rules, combat results, and victory.
 - [ ] Unsupported, malformed, stale, or oversized network messages are rejected safely and do not corrupt state.
 - [ ] Connection failure, player departure, and host departure have visible, predictable outcomes.
-- [x] A no-central-server flow is documented with manual signaling; connectivity caveats and optional TURN relay requirements are stated accurately. See the multiplayer prototype section in `README.md`; it also states that playable matches are not implemented yet.
+- [x] A short-lived signaling relay exchanges offers and answers without carrying gameplay or persisting match state; connectivity caveats and optional TURN relay requirements are stated accurately. See the multiplayer section in `README.md`.
 - [x] No identity, privacy, anti-cheat, or cross-network reliability guarantees are claimed beyond what the design provides.
 
 ## Notes and future options
 
-- WebRTC signaling is deliberately out of scope for the initial transport milestone. If manual offer/answer exchange proves too cumbersome, a later optional signaling service can exchange setup messages without becoming the game-state authority.
+- The signaling service is intentionally limited to initial connection setup. It does not become the game-state authority or a gameplay relay.
 - A TURN relay can improve reachability but routes data through an operator's infrastructure and has bandwidth/cost implications. Offer it as an explicit deployment option, not as a hidden requirement.
 - Host authority is appropriate for friendly matches, but a dishonest host can falsify results. Competitive play would need a trusted server or a substantially different verification model.
 - Keep networking feature flags and solo startup isolated so the current game remains usable when WebRTC is unavailable or unsupported.
