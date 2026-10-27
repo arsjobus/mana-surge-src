@@ -104,7 +104,7 @@ Cross-module dependencies to watch: board queries are used by rendering, input, 
 ### 3. Separate board and troop responsibilities
 
 - [x] Extract board construction and tile/state queries into `board/BoardModel.js`.
-- [ ] Extract SVG texture creation and board drawing into `board/BoardRenderer.js`.
+- [x] Extract SVG texture creation and board drawing into `board/BoardRenderer.js`.
 - [ ] Extract troop sprite creation, destruction, movement animation, lock visuals, and effects into `entities/Troop.js` (or a small troop view module if that is clearer).
 - [ ] Keep gameplay rules such as legal movement and tile effects in model/system code rather than in rendering functions.
 
