@@ -197,7 +197,7 @@ function startGuestCombatPhase(){
   guestCombatPhaseRunning = true;
   runCombatPhase(ruleContext(), session.localSeat).catch(error => console.error('Guest combat phase failed:', error)).finally(() => { guestCombatPhaseRunning = false; });
 }
-function ruleContext(){return {players:()=>gameState.players,troops:()=>gameState.troops,tiles:()=>gameState.tiles,countTiles,getTile,isLocked,getStats,isEmptyTile,neighbors,sleep,log,coloredName,cssColor,createTroop,destroyTroop,waitFor,validateIntent,updateHUD,document,hexSize:HEX_SIZE,axialToPixel:(q,r)=>axialToPixel(q,r,HEX_SIZE),boardX,boardY,burst,winScore:gameState.winScore,setGameOver:value=>{gameState.gameOver=value;},showVictory:pi=>{gameState.session?.endForVictory(pi);showVictory(pi);},weights:AIW,cpuChooseSpawnTile:(_pi,options)=>chooseCpuSpawnTile({getTile},options),waitForSpawn:chooseSpawnTileHuman,hasLegalMove,hasLegalAttack,daggerAvailable,gameOver:()=>gameState.gameOver,performSacrifice,executeMove,executeAttack,clearHighlights,multiplayerRole:gameState.session?.role,requestGuestMove,requestGuestCombat,requestGuestSacrifice,requestGuestSacrificeCancel,actionApplied:action=>{const session=gameState.session;if(session?.role==='host')session.publishAccepted(action,{type:action.type},session.createSnapshot(gameState));},setDecision:(seat,phase)=>{const session=gameState.session;if(!session)return;session.setDecision({seat,phase});if(session.role==='host')session.publishSnapshot(session.createSnapshot(gameState));},moveDecision:(pi,isPreCombat)=>CPU_MOVE_TREE({pi,isPreCombat}),combatDecision:pi=>CPU_COMBAT_TREE({pi})};}
+function ruleContext(){return {players:()=>gameState.players,troops:()=>gameState.troops,tiles:()=>gameState.tiles,countTiles,getTile,isLocked,getStats,isEmptyTile,neighbors,sleep,log,coloredName,cssColor,createTroop,destroyTroop,waitFor,validateIntent,updateHUD,document,hexSize:HEX_SIZE,axialToPixel:(q,r)=>axialToPixel(q,r,HEX_SIZE),boardX,boardY,burst,winScore:gameState.winScore,setGameOver:value=>{gameState.gameOver=value;},showVictory:pi=>{gameState.session?.endForVictory(pi);showVictory(pi);},weights:AIW,cpuChooseSpawnTile:(_pi,options)=>chooseCpuSpawnTile({getTile},options),waitForSpawn:chooseSpawnTileHuman,hasLegalMove,hasLegalAttack,daggerAvailable,gameOver:()=>gameState.gameOver,performSacrifice,executeMove,executeAttack,clearHighlights,waitUntilResumed:()=>gameState.session?.waitUntilResumed(),multiplayerRole:gameState.session?.role,requestGuestMove,requestGuestCombat,requestGuestSacrifice,requestGuestSacrificeCancel,actionApplied:action=>{const session=gameState.session;if(session?.role==='host')session.publishAccepted(action,{type:action.type},session.createSnapshot(gameState));},setDecision:(seat,phase)=>{const session=gameState.session;if(!session)return;session.setDecision({seat,phase});if(session.role==='host')session.publishSnapshot(session.createSnapshot(gameState));},moveDecision:(pi,isPreCombat)=>CPU_MOVE_TREE({pi,isPreCombat}),combatDecision:pi=>CPU_COMBAT_TREE({pi})};}
 function daggerAvailable(pi){return combatDaggerAvailable({countTiles,troops:()=>gameState.troops},pi);}
 function cpuShouldUseDagger(pi){return aiShouldUseDagger({players:gameState.players,troops:gameState.troops,weights:AIW()},pi);}
 
@@ -323,7 +323,11 @@ function chooseSpawnTileHuman(options,pi=gameState.currentPlayerIndex){
   document.getElementById('skip-btn').disabled = true;
   const promise = waitFor('spawnChoice', pi, options);
   highlightSpawnOptions(options);
-  return promise.then(intent=>{ clearHighlights(); return validateIntent(intent,'spawn',pi,options)?.coord || options[0]; });
+  return promise.then(intent=>{
+    clearHighlights();
+    if (intent?.type === 'cancel' && gameState.session?.roster?.[pi]?.controller === 'cpu') return chooseCpuSpawnTile({getTile}, options);
+    return validateIntent(intent,'spawn',pi,options)?.coord || options[0];
+  });
 }
 
 function cpuChooseSpawnTile(pi, options){
@@ -439,7 +443,8 @@ const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMa
           }
         }
         if (message.type === 'hello' && role === 'host' && gameState.session) {
-          coordinator.sendTo(seat, 'seatAssignment', { seat, snapshot: gameState.session.createSnapshot(gameState, 'spawn') });
+          coordinator.sendTo(seat, 'seatAssignment', { seat, snapshot: gameState.session.createSnapshot(gameState) });
+          gameState.session.resumeGuest(seat);
         }
         if (message.type === 'seatAssignment' && role === 'guest') {
           const snapshot = message.payload.snapshot;

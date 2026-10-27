@@ -1,7 +1,7 @@
 import { MatchSession } from '../../src/multiplayer/MatchSession.js';
 import { decodeMessage, encodeMessage } from '../../src/multiplayer/MessageCodec.js';
 import { SessionCoordinator } from '../../src/multiplayer/SessionCoordinator.js';
-import { combatPhase, movePhase } from '../../src/systems/TurnSystem.js';
+import { combatPhase, movePhase, playTurn } from '../../src/systems/TurnSystem.js';
 
 describe('multiplayer protocol and host authorization', () => {
   it('publishes CPU moves and attacks through the host action callback', async () => {
@@ -58,6 +58,66 @@ describe('multiplayer protocol and host authorization', () => {
       v: 1, matchId: 'match_identifier_1234', senderSeat: 0, seq: 1,
       type: 'matchEnded', payload: { winnerSeat: 3 }
     })).to.throw('Invalid multiplayer message');
+  });
+
+  it('holds turn-boundary work until a disconnected guest is retried or replaced', async () => {
+    const session = new MatchSession({
+      role: 'host', localSeat: 0, hostSeat: 0, matchId: 'match_identifier_1234',
+      roster: [
+        { seat: 0, controller: 'host', name: 'Red' },
+        { seat: 1, controller: 'guest', name: 'Blue' },
+        { seat: 2, controller: 'cpu', name: 'Green' }
+      ]
+    });
+    session.peerDisconnected(1);
+    let resumed = false;
+    const waiting = session.waitUntilResumed().then(() => { resumed = true; });
+    await Promise.resolve();
+    expect(resumed).to.equal(false);
+    expect(session.replaceDisconnectedGuest(1)).to.equal(true);
+    await waiting;
+    expect(resumed).to.equal(true);
+    expect(session.roster[1].controller).to.equal('cpu');
+  });
+
+  it('pauses turn startup while the session is disconnected', async () => {
+    let released = false;
+    let phases = 0;
+    const context = {
+      players: () => [{ name: 'Red', human: false }],
+      log: () => {}, coloredName: () => 'Red', cssColor: () => '#f00',
+      setPhaseUI: () => { phases++; }, setDecision: () => {},
+      waitUntilResumed: () => released ? Promise.resolve() : new Promise(resolve => { release = () => { released = true; resolve(); }; }),
+      startPhase: async () => {}, movePhase: async () => {}, combatPhase: async () => {}, endPhase: async () => {},
+      isGameOver: () => false
+    };
+    let release;
+    const turn = playTurn(context, 0);
+    await Promise.resolve();
+    expect(phases).to.equal(0);
+    release();
+    await turn;
+    expect(phases).to.equal(5);
+  });
+
+  it('waits at a move decision boundary until the disconnected session resumes', async () => {
+    let release;
+    let finished = false;
+    const context = {
+      players: () => [{ actionPoints: 0 }],
+      document: { getElementById: () => ({ style: {}, disabled: false, textContent: '' }) },
+      waitUntilResumed: () => new Promise(resolve => { release = resolve; }),
+      gameOver: () => false,
+      hasLegalMove: () => false,
+      daggerAvailable: () => false,
+      clearHighlights: () => {}
+    };
+    const phase = movePhase(context, 0, true).then(() => { finished = true; });
+    await Promise.resolve();
+    expect(finished).to.equal(false);
+    release();
+    await phase;
+    expect(finished).to.equal(true);
   });
 
   it('authorizes only the assigned guest on its active turn and rejects replayed requests', () => {

@@ -18,6 +18,8 @@ export class MatchSession {
     this.activeSeat = hostSeat;
     this.phase = 'start';
     this.pendingRequest = null;
+    this.pausedSeat = null;
+    this.resumeWaiters = [];
     this.nextRequestSeq = 1;
     this.lastRequestSeq = new Map();
     this.ended = false;
@@ -145,14 +147,29 @@ export class MatchSession {
       this.onStatus('Host disconnected. This match has ended.');
       this.onEnd({ reason: 'hostDisconnected' });
     } else if (this.role === 'host' && this.roster?.[seat]?.controller === 'guest') {
+      this.pausedSeat = seat;
       this.onStatus(`${this.seatName(seat)} disconnected. Retry, replace with CPU, or end the match.`);
       this.onGuestDisconnect({ seat, name: this.seatName(seat) });
     }
   }
 
+  /** Turn runners await this at decision boundaries while a guest is offline. */
+  async waitUntilResumed() {
+    if (!this.pausedSeat || this.ended) return;
+    await new Promise(resolve => this.resumeWaiters.push(resolve));
+  }
+
+  resumeGuest(seat) {
+    if (this.role !== 'host' || this.pausedSeat !== seat || this.ended) return false;
+    this.pausedSeat = null;
+    for (const resolve of this.resumeWaiters.splice(0)) resolve();
+    return true;
+  }
+
   replaceDisconnectedGuest(seat) {
     if (this.role !== 'host' || this.ended || this.roster?.[seat]?.controller !== 'guest') return false;
     this.roster[seat] = { ...this.roster[seat], controller: 'cpu' };
+    this.resumeGuest(seat);
     this.onStatus(`${this.seatName(seat)} is now controlled by the CPU.`);
     return true;
   }
@@ -161,6 +178,8 @@ export class MatchSession {
     if (this.role !== 'host' || this.ended || this.roster?.[seat]?.controller !== 'guest') return false;
     this.ended = true;
     this.pendingRequest = null;
+    this.pausedSeat = null;
+    for (const resolve of this.resumeWaiters.splice(0)) resolve();
     this.onStatus('The match ended after a guest disconnected.');
     this.onEnd({ reason: 'guestDisconnected', seat });
     return true;
@@ -182,5 +201,10 @@ export class MatchSession {
     return true;
   }
 
-  end() { this.ended = true; this.pendingRequest = null; }
+  end() {
+    this.ended = true;
+    this.pendingRequest = null;
+    this.pausedSeat = null;
+    for (const resolve of this.resumeWaiters.splice(0)) resolve();
+  }
 }

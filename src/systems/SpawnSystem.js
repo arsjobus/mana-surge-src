@@ -17,6 +17,7 @@ export async function startPhase(context, pi) {
   const allowed = 1 + countTiles(pi, 'extra_spawn');
   let spawned = 0;
   for (let i = 0; i < allowed; i++) {
+    await context.waitUntilResumed?.();
     if (troops().filter((troop) => troop.owner === pi).length >= 15) { log(`${player.name} has no troops left in reserve.`); break; }
     const options = neighbors(player.spawner.q, player.spawner.r).filter((coord) => tiles().has(`${coord.q},${coord.r}`) && isEmptyTile(coord));
     if (!options.length) { log(`${player.name}'s spawner has no open ground.`); break; }

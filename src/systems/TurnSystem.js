@@ -46,6 +46,7 @@ export async function movePhase(context, pi, isPreCombat) {
   const skipButton = document.getElementById('skip-btn');
   const daggerButton = document.getElementById('dagger-btn');
   while (true) {
+    await context.waitUntilResumed?.();
     if (gameOver()) return;
     if (player.actionPoints <= 0) break;
     const canMove = hasLegalMove(pi);
@@ -116,6 +117,7 @@ export async function combatPhase(context, pi) {
   const skipButton = document.getElementById('skip-btn');
   const daggerButton = document.getElementById('dagger-btn');
   while (true) {
+    await context.waitUntilResumed?.();
     if (gameOver()) return;
     if (player.actionPoints <= 0) break;
     const canAttack = hasLegalAttack(pi);
@@ -174,20 +176,26 @@ export async function combatPhase(context, pi) {
 }
 
 export async function playTurn(context, pi) {
-  const { players, log, coloredName, cssColor, setPhaseUI, setDecision, startPhase, movePhase, combatPhase, endPhase, isGameOver } = context;
+  const { players, log, coloredName, cssColor, setPhaseUI, setDecision, startPhase, movePhase, combatPhase, endPhase, isGameOver, waitUntilResumed } = context;
   const player = players()[pi];
+  await waitUntilResumed?.();
   log(`<b style="color:${cssColor(player.colorHex)}">— ${player.name}'s Turn —</b>`);
   setPhaseUI(pi, 'Start Phase');
   setDecision?.(pi, 'spawn');
+  await waitUntilResumed?.();
   await startPhase(pi); if (isGameOver()) return;
   setPhaseUI(pi, 'Move Phase I');
+  await waitUntilResumed?.();
   await movePhase(pi, true); if (isGameOver()) return;
   setPhaseUI(pi, 'Combat Phase');
+  await waitUntilResumed?.();
   await combatPhase(pi); if (isGameOver()) return;
   setPhaseUI(pi, 'Move Phase II');
+  await waitUntilResumed?.();
   await movePhase(pi, false); if (isGameOver()) return;
   setPhaseUI(pi, 'End Phase');
   setDecision?.(pi, 'end');
+  await waitUntilResumed?.();
   await endPhase(pi);
 }
 
