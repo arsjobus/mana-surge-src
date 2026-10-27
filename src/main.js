@@ -7,7 +7,7 @@ import { N, INNER_RADIUS, HEX_SIZE, DIRS, key, neighbors, hexDistance, axialToPi
 import { sleep, tweenPromise } from './utils/async.js';
 import { TILE_INFO, LOCKING_TYPES, COLOR_META } from './data/gameData.js';
 import { WEIGHT_PRESETS } from './data/aiWeights.js';
-import { BOARD_DATA } from './data/boardData.js';
+import * as BoardModel from './board/BoardModel.js';
 
 
 /* ---------------------------------------------------------------------
@@ -71,67 +71,22 @@ function boardY(py){ return boardCY + py; }
 function playerColorHex(pi){ return players[pi].colorHex; }
 function playerName(pi){ return players[pi].name; }
 
-function getTile(q,r){ return tiles.get(key(q,r)); }
-function isLocked(troop){
-  const t = getTile(troop.q,troop.r);
-  return LOCKING_TYPES.includes(t.type);
-}
-function getStats(troop){
-  const t = getTile(troop.q,troop.r);
-  let atk=1, def=1;
-  if(t.type==='atk_minus') atk -= 1;
-  if(t.type==='atk_plus') atk += 1;
-  if(t.type==='def_plus') def += 1;
-  return {atk:Math.max(atk,0), def:Math.max(def,0)};
-}
-function getTroopAt(q,r){
-  const t = getTile(q,r);
-  if(!t || t.occupantId==null) return null;
-  return troops.find(tr=>tr.id===t.occupantId) || null;
-}
-function isEmptyTile(coord){
-  const t = getTile(coord.q,coord.r);
-  if(!t) return false;
-  if(t.type==='spawner') return false;
-  return t.occupantId==null;
-}
-function countTiles(pi, type){
-  let c=0;
-  troops.forEach(tr=>{ if(tr.owner===pi && getTile(tr.q,tr.r).type===type) c++; });
-  return c;
-}
-function hasLegalMove(pi){
-  return troops.some(tr=> tr.owner===pi && !isLocked(tr) &&
-    neighbors(tr.q,tr.r).some(n=> tiles.has(key(n.q,n.r)) && isEmptyTile(n)));
-}
-function hasLegalAttack(pi){
-  return troops.some(tr=> tr.owner===pi && !isLocked(tr) &&
-    neighbors(tr.q,tr.r).some(n=>{ const e=getTroopAt(n.q,n.r); return e && e.owner!==pi; }));
-}
+function getTile(q,r){ return BoardModel.getTile(tiles,q,r); }
+function isLocked(troop){ return BoardModel.isLocked(tiles,troop); }
+function getStats(troop){ return BoardModel.getStats(tiles,troop); }
+function getTroopAt(q,r){ return BoardModel.getTroopAt(tiles,troops,q,r); }
+function isEmptyTile(coord){ return BoardModel.isEmptyTile(tiles,coord); }
+function countTiles(pi,type){ return BoardModel.countTiles(tiles,troops,pi,type); }
+function hasLegalMove(pi){ return BoardModel.hasLegalMove(tiles,troops,pi); }
+function hasLegalAttack(pi){ return BoardModel.hasLegalAttack(tiles,troops,pi); }
 
 // Exact board layout extracted and verified (via pixel measurement + 3-fold
 // rotational symmetry validation) from the reference board image. This is a
 // fixed, hand-authored layout so every match is provably identical and fair
 // for all three players -- not randomly generated.
-function buildBoard(){
-  tiles = new Map();
-  BOARD_DATA.forEach(d=>{
-    tiles.set(key(d.q,d.r), {
-      q:d.q, r:d.r, type:d.type, biome:(d.biome==='grey'?'stone':'green'),
-      occupantId:null, owner: d.owner
-    });
-  });
-  const spawnerCoords = [{q:-5,r:0}, {q:5,r:-5}, {q:0,r:5}]; // clockwise: Red, Blue, Green
-  players.forEach((p,i)=>{ p.spawner = spawnerCoords[i]; });
-}
+function buildBoard(){ tiles = BoardModel.buildBoard(players); }
 
-function setupInitialTroops(){
-  players.forEach((p,pi)=>{
-    neighbors(p.spawner.q,p.spawner.r)
-      .filter(n=>tiles.has(key(n.q,n.r)))
-      .forEach(n=> createTroop(pi, n.q, n.r, false));
-  });
-}
+function setupInitialTroops(){ BoardModel.setupInitialTroops(players,tiles,createTroop); }
 
 /* ---------------------------------------------------------------------
    Texture generation (SVG -> Phaser textures)
