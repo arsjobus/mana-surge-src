@@ -97,12 +97,14 @@ The guest host-disconnect path is now connected to a match-ended modal: it stops
 
 ### 6. Build coverage and perform manual verification
 
-- [ ] Add unit or browser tests for protocol validation, host action authorization, sequence handling, and guest rejection paths.
+- [x] Add unit or browser tests for protocol validation, host action authorization, sequence handling, and guest rejection paths.
 - [ ] Extend Cypress coverage for solo regression, host setup, guest seat assignment, and multiplayer UI states using a deterministic fake transport where appropriate.
 - [ ] Manually test two- and three-browser sessions on the same machine/network, including legal and illegal actions, victory, restart/leave, and disconnects.
 - [ ] Manually test a connection between separate networks and document whether STUN-only succeeds; do not claim universal reachability based only on local-network tests.
 - [ ] Check browser consoles for errors and verify cleanup after leaving or restarting a session.
 - [ ] Document setup, connection-code exchange, supported browser requirements, privacy implications, and TURN limitations in `README.md` after implementation.
+
+Coverage: `cypress/e2e/multiplayer.cy.js` checks protocol envelope round trips and malformed/mismatched input, host seat and turn authorization, replay rejection, wrong-phase actions, and game-rule rejection. The full Cypress suite passes. These tests cover session primitives; they do not establish that a complete multiplayer match is playable.
 
 ## Completion criteria
 
