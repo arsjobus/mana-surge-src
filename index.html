@@ -1,126 +1,126 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mana Surge</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&display=swap" rel="stylesheet">
-<script src="assets/scripts/phaser.min.js"></script>
-<link rel="stylesheet" type="text/css" href="assets/styles/main.css">
-</head>
-<body>
+  <head>
+    <title>Mana Surge</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&display=swap" rel="stylesheet">
+    <script src="assets/scripts/phaser.min.js"></script>
+    <link rel="stylesheet" type="text/css" href="assets/styles/main.css">
+  </head>
 
-<div id="game-container"></div>
-<div id="bg-vignette"></div>
+  <body>
+    <div id="game-container"></div>
+    <div id="bg-vignette"></div>
 
-<div id="ui-stage">
-  <div id="top-bar">
-    <div id="logo">MANA&nbsp;SURGE</div>
-    <div id="turn-banner">
-      <div id="turn-dot" style="color:#ff5757;background:#ff5757;"></div>
-      <div id="turn-text">Red's Turn</div>
-      <div id="phase-text">Start Phase</div>
-      <div id="ap-pips"></div>
+    <div id="ui-stage">
+      <div id="top-bar">
+        <div id="logo">MANA&nbsp;SURGE</div>
+        <div id="turn-banner">
+          <div id="turn-dot" style="color:#ff5757;background:#ff5757;"></div>
+          <div id="turn-text">Red's Turn</div>
+          <div id="phase-text">Start Phase</div>
+          <div id="ap-pips"></div>
+        </div>
+        <div style="justify-self:end;display:flex;gap:10px;pointer-events:none;">
+          <button id="mute-btn" title="Toggle music">🔊</button>
+          <button id="help-btn" title="How to play">?</button>
+        </div>
+      </div>
+
+      <div id="mana-panel"></div>
+
+      <div id="bottom-bar">
+        <div id="tile-info"><b>Mana Surge</b><br>Hover a tile or unit to inspect it.</div>
+        <div id="action-panel">
+          <button class="game-btn" id="dagger-btn" title="Sacrifice 3 troops for 1 mana" style="display:none;">🗡️ Sacrifice</button>
+          <button class="game-btn" id="skip-btn" disabled>Skip Phase</button>
+          <button class="game-btn" id="restart-btn">Restart</button>
+        </div>
+      </div>
     </div>
-    <div style="justify-self:end;display:flex;gap:10px;pointer-events:none;">
-      <button id="mute-btn" title="Toggle music">🔊</button>
-      <button id="help-btn" title="How to play">?</button>
+
+    <div id="hidden-start-overlay">
+      <h1>MANA SURGE</h1>
+      <p>Command your clan against two rival AI factions. Spawn troops, seize combat shrines, and hold the
+         Mana Pool at the center of the realm to be the first to gather <b><span id="intro-winscore">10</span> mana points</b>.</p>
+      <div id="difficulty-label">Choose Your Clan</div>
+      <div id="difficulty-row">
+        <button class="pill-btn color-btn selected" data-color="0"><span class="jewel" style="--jewelcolor:#ff5757;"></span>Red</button>
+        <button class="pill-btn color-btn" data-color="1"><span class="jewel" style="--jewelcolor:#5aa9ff;"></span>Blue</button>
+        <button class="pill-btn color-btn" data-color="2"><span class="jewel" style="--jewelcolor:#4fe08a;"></span>Green</button>
+      </div>
+      <div id="difficulty-label">Choose Your Challenge</div>
+      <div id="difficulty-row">
+        <button class="pill-btn diff-btn" data-diff="easy">Easy</button>
+        <button class="pill-btn diff-btn selected" data-diff="medium">Medium</button>
+        <button class="pill-btn diff-btn" data-diff="hard">Hard</button>
+      </div>
+      <div id="difficulty-label">Victory Threshold: <span id="winscore-value">10</span> Mana</div>
+      <input type="range" id="winscore-slider" min="10" max="50" step="10" value="10">
+      <button class="game-btn primary" id="start-btn">Begin the Surge</button>
+      <button class="game-btn" id="rules-btn">How to Play</button>
+      <button class="game-btn" id="credits-btn">Credits</button>
     </div>
-  </div>
 
-  <div id="mana-panel"></div>
-
-  <div id="bottom-bar">
-    <div id="tile-info"><b>Mana Surge</b><br>Hover a tile or unit to inspect it.</div>
-    <div id="action-panel">
-      <button class="game-btn" id="dagger-btn" title="Sacrifice 3 troops for 1 mana" style="display:none;">🗡️ Sacrifice</button>
-      <button class="game-btn" id="skip-btn" disabled>Skip Phase</button>
-      <button class="game-btn" id="restart-btn">Restart</button>
+    <div class="modal-overlay" id="help-modal" style="display:none;">
+      <div class="modal-shell">
+        <button class="modal-close-x" id="close-help-x" aria-label="Close">&times;</button>
+        <div class="modal-box">
+        <h2>How to Play Mana Surge</h2>
+        <p>Be the first to collect <b><span id="help-winscore">10</span> mana points</b> from the glowing Mana Pool at the center of the board.</p>
+        <h3>Turn Structure</h3>
+        <p><b>Start</b> — your action points refresh (1, plus bonuses) and your spawner places new troop(s) on an
+           adjacent empty tile.<br>
+           <b>Move</b> — spend 1 action point to move a troop one tile into an empty adjacent hex.<br>
+           <b>Combat</b> — spend 1 action point to attack an adjacent enemy troop.<br>
+           <b>Move</b> — a second movement window using any remaining action points.<br>
+           <b>End</b> — if you occupy the Mana Pool, you automatically gain 1 mana point.</p>
+        <h3>Combat</h3>
+        <p>All troops start at 1 ATK / 1 DEF. An attack destroys the defender if the attacker's ATK is
+           <b>greater than or equal to</b> the defender's DEF — and vice versa for the defender striking back at the
+           same time. Two default troops trade evenly and <b>both die</b>, so simple attacks are real threats: sitting
+           on the Mana Pool or a shrine does not make you safe from being contested!</p>
+        <h3>The Board</h3>
+        <p>An outer ring of <b>stone</b> tiles is each clan's home territory (spawners + starting troops). The inner
+           <b>grass</b> hexagon is the battlefield, holding every shrine, hazard, and the Mana Pool at its heart.</p>
+        <h3>Tile Types</h3>
+        <div class="legend"><span class="sw" style="background:#6ec3ff;"></span> Mana Pool — collect a point each turn you hold it (can still be attacked).</div>
+        <div class="legend"><span class="sw" style="background:#d94fa0;"></span> Thorns — instantly destroys any troop that steps on it.</div>
+        <div class="legend"><span class="sw" style="background:#d7d9e0;"></span> −1 Attack shrine.</div>
+        <div class="legend"><span class="sw" style="background:#f2d98a;"></span> +1 Attack shrine.</div>
+        <div class="legend"><span class="sw" style="background:#f2d98a;"></span> +1 Defense shrine.</div>
+        <div class="legend"><span class="sw" style="background:#8e78d8;"></span> Extra Action shrine — +1 action point per turn while occupied (out in the stone ring).</div>
+        <div class="legend"><span class="sw" style="background:#8e78d8;"></span> Extra Spawn shrine — +1 troop spawned per turn while occupied.</div>
+        <div class="legend"><span class="sw" style="background:#8e78d8;"></span> Sacrificial Dagger — spend 1 action point to sacrifice 3 of your troops for 1 mana.</div>
+        <p style="margin-top:10px;">Troops standing on the Mana Pool, the Surge shrine, or the Growth shrine are
+           <b>locked</b>: they cannot move or attack while there (but can still be attacked). The Sacrificial Dagger
+           does not lock its occupant.</p>
+        <div class="btn-row"><button class="game-btn" id="close-help">Close</button></div>
+        </div>
+      </div>
     </div>
-  </div>
-</div>
 
-<div id="hidden-start-overlay">
-  <h1>MANA SURGE</h1>
-  <p>Command your clan against two rival AI factions. Spawn troops, seize combat shrines, and hold the
-     Mana Pool at the center of the realm to be the first to gather <b><span id="intro-winscore">10</span> mana points</b>.</p>
-  <div id="difficulty-label">Choose Your Clan</div>
-  <div id="difficulty-row">
-    <button class="pill-btn color-btn selected" data-color="0"><span class="jewel" style="--jewelcolor:#ff5757;"></span>Red</button>
-    <button class="pill-btn color-btn" data-color="1"><span class="jewel" style="--jewelcolor:#5aa9ff;"></span>Blue</button>
-    <button class="pill-btn color-btn" data-color="2"><span class="jewel" style="--jewelcolor:#4fe08a;"></span>Green</button>
-  </div>
-  <div id="difficulty-label">Choose Your Challenge</div>
-  <div id="difficulty-row">
-    <button class="pill-btn diff-btn" data-diff="easy">Easy</button>
-    <button class="pill-btn diff-btn selected" data-diff="medium">Medium</button>
-    <button class="pill-btn diff-btn" data-diff="hard">Hard</button>
-  </div>
-  <div id="difficulty-label">Victory Threshold: <span id="winscore-value">10</span> Mana</div>
-  <input type="range" id="winscore-slider" min="10" max="50" step="10" value="10">
-  <button class="game-btn primary" id="start-btn">Begin the Surge</button>
-  <button class="game-btn" id="rules-btn">How to Play</button>
-  <button class="game-btn" id="credits-btn">Credits</button>
-</div>
-
-<div class="modal-overlay" id="help-modal" style="display:none;">
-  <div class="modal-shell">
-    <button class="modal-close-x" id="close-help-x" aria-label="Close">&times;</button>
-    <div class="modal-box">
-    <h2>How to Play Mana Surge</h2>
-    <p>Be the first to collect <b><span id="help-winscore">10</span> mana points</b> from the glowing Mana Pool at the center of the board.</p>
-    <h3>Turn Structure</h3>
-    <p><b>Start</b> — your action points refresh (1, plus bonuses) and your spawner places new troop(s) on an
-       adjacent empty tile.<br>
-       <b>Move</b> — spend 1 action point to move a troop one tile into an empty adjacent hex.<br>
-       <b>Combat</b> — spend 1 action point to attack an adjacent enemy troop.<br>
-       <b>Move</b> — a second movement window using any remaining action points.<br>
-       <b>End</b> — if you occupy the Mana Pool, you automatically gain 1 mana point.</p>
-    <h3>Combat</h3>
-    <p>All troops start at 1 ATK / 1 DEF. An attack destroys the defender if the attacker's ATK is
-       <b>greater than or equal to</b> the defender's DEF — and vice versa for the defender striking back at the
-       same time. Two default troops trade evenly and <b>both die</b>, so simple attacks are real threats: sitting
-       on the Mana Pool or a shrine does not make you safe from being contested!</p>
-    <h3>The Board</h3>
-    <p>An outer ring of <b>stone</b> tiles is each clan's home territory (spawners + starting troops). The inner
-       <b>grass</b> hexagon is the battlefield, holding every shrine, hazard, and the Mana Pool at its heart.</p>
-    <h3>Tile Types</h3>
-    <div class="legend"><span class="sw" style="background:#6ec3ff;"></span> Mana Pool — collect a point each turn you hold it (can still be attacked).</div>
-    <div class="legend"><span class="sw" style="background:#d94fa0;"></span> Thorns — instantly destroys any troop that steps on it.</div>
-    <div class="legend"><span class="sw" style="background:#d7d9e0;"></span> −1 Attack shrine.</div>
-    <div class="legend"><span class="sw" style="background:#f2d98a;"></span> +1 Attack shrine.</div>
-    <div class="legend"><span class="sw" style="background:#f2d98a;"></span> +1 Defense shrine.</div>
-    <div class="legend"><span class="sw" style="background:#8e78d8;"></span> Extra Action shrine — +1 action point per turn while occupied (out in the stone ring).</div>
-    <div class="legend"><span class="sw" style="background:#8e78d8;"></span> Extra Spawn shrine — +1 troop spawned per turn while occupied.</div>
-    <div class="legend"><span class="sw" style="background:#8e78d8;"></span> Sacrificial Dagger — spend 1 action point to sacrifice 3 of your troops for 1 mana.</div>
-    <p style="margin-top:10px;">Troops standing on the Mana Pool, the Surge shrine, or the Growth shrine are
-       <b>locked</b>: they cannot move or attack while there (but can still be attacked). The Sacrificial Dagger
-       does not lock its occupant.</p>
-    <div class="btn-row"><button class="game-btn" id="close-help">Close</button></div>
+    <div class="modal-overlay" id="credits-modal" style="display:none;">
+      <div class="modal-shell">
+        <button class="modal-close-x" id="close-credits-x" aria-label="Close">&times;</button>
+        <div class="modal-box">
+        <h2>Credits</h2>
+        <div id="credits-list"></div>
+        <div class="btn-row"><button class="game-btn" id="close-credits">Close</button></div>
+        </div>
+      </div>
     </div>
-  </div>
-</div>
 
-<div class="modal-overlay" id="credits-modal" style="display:none;">
-  <div class="modal-shell">
-    <button class="modal-close-x" id="close-credits-x" aria-label="Close">&times;</button>
-    <div class="modal-box">
-    <h2>Credits</h2>
-    <div id="credits-list"></div>
-    <div class="btn-row"><button class="game-btn" id="close-credits">Close</button></div>
+    <div class="modal-overlay" id="victory-modal" style="display:none;">
+      <div class="modal-box" style="text-align:center;">
+        <h2 id="victory-title">Victory!</h2>
+        <p id="victory-text"></p>
+        <div class="btn-row"><button class="game-btn" id="playagain-btn" style="font-size:15px;padding:11px 26px;">Play Again</button></div>
+      </div>
     </div>
-  </div>
-</div>
 
-<div class="modal-overlay" id="victory-modal" style="display:none;">
-  <div class="modal-box" style="text-align:center;">
-    <h2 id="victory-title">Victory!</h2>
-    <p id="victory-text"></p>
-    <div class="btn-row"><button class="game-btn" id="playagain-btn" style="font-size:15px;padding:11px 26px;">Play Again</button></div>
-  </div>
-</div>
-
-<script type="text/javascript" src="src/main.js"></script>
-</body>
+    <script type="text/javascript" src="src/main.js"></script>
+  </body>
 </html>
