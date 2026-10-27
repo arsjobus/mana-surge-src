@@ -4,6 +4,9 @@ export function createBoardInput(context) {
   const { state, scene, actions, getTile, getTroopAt, isLocked, isEmptyTile, neighbors, key, hexDistance, tileInfo, playerColor, playerName, getStats, cssColor } = context;
   let highlights = [];
   let selection = null;
+  function canControlPendingAction(pending) {
+    return !(state.session?.role === 'host' && state.session.roster?.[pending?.playerIndex]?.controller === 'guest');
+  }
   function clearHighlights() {
     highlights.forEach(sprite => { if (sprite?.setAlpha) sprite.setAlpha(0); if (sprite?._tween) { sprite._tween.stop(); sprite._tween = null; } });
     highlights = [];
@@ -34,7 +37,7 @@ export function createBoardInput(context) {
   }
   function invalid(troop) { scene.tweens.add({targets:troop.sprite,x:'+=4',duration:40,yoyo:true,repeat:4}); }
   function onTroopClicked(troop) {
-    const pending=actions.current(); if(!pending) return;
+    const pending=actions.current(); if(!pending || !canControlPendingAction(pending)) return;
     const {kind,playerIndex}=pending;
     if(kind==='sacrifice') { if(troop.owner===playerIndex&&!pending.picks.includes(troop)){ pending.picks.push(troop); troop.selSprite.setTint(0xd94fa0).setAlpha(1); if(pending.picks.length>=3){const troopIds=pending.picks.map(pick=>pick.id);clearHighlights();actions.submit({type:'sacrifice',troopIds});} } return; }
     if(kind==='move'&&troop.owner===playerIndex&&!isLocked(troop)) { const targets=neighbors(troop.q,troop.r).filter(n=>state.tiles.has(key(n.q,n.r))&&isEmptyTile(n)); if(!targets.length){invalid(troop);return;} clearHighlights();pending.selected=troop.id;selectTroop(troop);highlightTiles(targets,0x6fffb0); }
@@ -45,7 +48,7 @@ export function createBoardInput(context) {
     }
   }
   function onTileClicked(tile) {
-    const pending=actions.current();if(!pending)return;
+    const pending=actions.current();if(!pending || !canControlPendingAction(pending))return;
     if(pending.kind==='move'&&pending.selected){const troop=state.troops.find(item=>item.id===pending.selected);if(troop&&hexDistance(troop,tile)===1&&isEmptyTile(tile)){clearHighlights();actions.submit({type:'move',troopId:troop.id,q:tile.q,r:tile.r});}}
     else if(pending.kind==='spawnChoice'&&pending.options?.some(o=>o.q===tile.q&&o.r===tile.r)){clearHighlights();actions.submit({type:'spawn',q:tile.q,r:tile.r});}
   }
