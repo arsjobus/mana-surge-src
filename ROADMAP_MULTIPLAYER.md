@@ -118,7 +118,7 @@ The guest host-disconnect path is now connected to a match-ended modal: it stops
 - [ ] Manually test two- and three-browser sessions on the same machine/network, including legal and illegal actions, victory, restart/leave, and disconnects.
 - [ ] Manually test a connection between separate networks and document whether STUN-only succeeds; do not claim universal reachability based only on local-network tests.
 - [ ] Check browser consoles for errors and verify cleanup after leaving or restarting a session.
-- [ ] Document setup, connection-code exchange, supported browser requirements, privacy implications, and TURN limitations in `README.md` after implementation.
+- [x] Document setup, connection-code exchange, supported browser requirements, privacy implications, and TURN limitations in `README.md` after implementation.
 
 Coverage: `cypress/e2e/multiplayer.cy.js` checks protocol envelope round trips and malformed/mismatched input, host seat and turn authorization, replay rejection, wrong-phase actions, and game-rule rejection. The full Cypress suite passes. These tests cover session primitives; they do not establish that a complete multiplayer match is playable.
 
