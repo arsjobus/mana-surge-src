@@ -37,6 +37,106 @@ export async function endPhase(context, pi) {
   }
 }
 
+/** Run a move phase using rule, AI, and interaction callbacks supplied by the scene. */
+export async function movePhase(context, pi, isPreCombat) {
+  const { players, hasLegalMove, daggerAvailable, document, gameOver, waitFor, performSacrifice,
+    updateHUD, getTile, executeMove, sleep, moveDecision, clearHighlights } = context;
+  const player = players()[pi];
+  const skipButton = document.getElementById('skip-btn');
+  const daggerButton = document.getElementById('dagger-btn');
+  while (true) {
+    if (gameOver()) return;
+    if (player.actionPoints <= 0) break;
+    const canMove = hasLegalMove(pi);
+    const canDagger = daggerAvailable(pi);
+    if (!canMove && !canDagger) break;
+    if (player.human) {
+      daggerButton.style.display = canDagger ? 'block' : 'none';
+      daggerButton.disabled = !canDagger;
+      skipButton.disabled = false;
+      skipButton.textContent = 'Skip Move Phase';
+      const action = await waitFor('move', pi);
+      skipButton.disabled = true;
+      if (action.type === 'dagger') {
+        const didSacrifice = await performSacrifice(pi);
+        if (didSacrifice) player.actionPoints--;
+        updateHUD();
+        continue;
+      }
+      if (action.type === 'skip') break;
+      await executeMove(action.troop, getTile(action.target.q, action.target.r));
+      player.actionPoints--;
+      updateHUD();
+    } else {
+      await sleep(500);
+      const decision = moveDecision(pi, isPreCombat);
+      if (decision.type === 'move') {
+        await executeMove(decision.troop, getTile(decision.target.q, decision.target.r));
+        player.actionPoints--;
+        updateHUD();
+        await sleep(250);
+      } else if (decision.type === 'sacrifice') {
+        const didSacrifice = await performSacrifice(pi);
+        if (didSacrifice) player.actionPoints--;
+        updateHUD();
+        await sleep(250);
+      } else break;
+    }
+  }
+  daggerButton.style.display = 'none';
+  clearHighlights();
+}
+
+/** Run combat actions until the player passes or runs out of action points. */
+export async function combatPhase(context, pi) {
+  const { players, hasLegalAttack, daggerAvailable, document, gameOver, waitFor, performSacrifice,
+    updateHUD, executeAttack, sleep, combatDecision, clearHighlights } = context;
+  const player = players()[pi];
+  const skipButton = document.getElementById('skip-btn');
+  const daggerButton = document.getElementById('dagger-btn');
+  while (true) {
+    if (gameOver()) return;
+    if (player.actionPoints <= 0) break;
+    const canAttack = hasLegalAttack(pi);
+    const canDagger = daggerAvailable(pi);
+    if (!canAttack && !canDagger) break;
+    if (player.human) {
+      daggerButton.style.display = canDagger ? 'block' : 'none';
+      daggerButton.disabled = !canDagger;
+      skipButton.disabled = false;
+      skipButton.textContent = 'Skip Combat Phase';
+      const action = await waitFor('attack', pi);
+      skipButton.disabled = true;
+      if (action.type === 'dagger') {
+        const didSacrifice = await performSacrifice(pi);
+        if (didSacrifice) player.actionPoints--;
+        updateHUD();
+        continue;
+      }
+      if (action.type === 'skip') break;
+      await executeAttack(action.attacker, action.defender);
+      player.actionPoints--;
+      updateHUD();
+    } else {
+      await sleep(550);
+      const decision = combatDecision(pi);
+      if (decision.type === 'attack') {
+        await executeAttack(decision.attacker, decision.defender);
+        player.actionPoints--;
+        updateHUD();
+        await sleep(300);
+      } else if (decision.type === 'sacrifice') {
+        const didSacrifice = await performSacrifice(pi);
+        if (didSacrifice) player.actionPoints--;
+        updateHUD();
+        await sleep(300);
+      } else break;
+    }
+  }
+  daggerButton.style.display = 'none';
+  clearHighlights();
+}
+
 export async function playTurn(context, pi) {
   const { players, log, coloredName, cssColor, setPhaseUI, startPhase, movePhase, combatPhase, endPhase, isGameOver } = context;
   const player = players()[pi];

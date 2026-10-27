@@ -12,7 +12,7 @@ import { buildTextures, renderBoard as drawBoard } from './board/BoardRenderer.j
 import { TOKEN_SCALE, createTroop as createTroopView, destroyTroop as destroyTroopView, refreshLockVisual as refreshTroopLockVisual, burst as troopBurst, moveSpritesTo as moveTroopSprites } from './entities/Troop.js';
 import { daggerAvailable as combatDaggerAvailable, cpuShouldUseDagger as combatCpuShouldUseDagger, performSacrifice as resolveSacrifice, executeAttack as resolveAttack } from './systems/CombatSystem.js';
 import { startPhase as runStartPhase, chooseCpuSpawnTile } from './systems/SpawnSystem.js';
-import { playTurn as runTurn, gameLoop as runGameLoop, endPhase as runEndPhase, executeMove as runExecuteMove } from './systems/TurnSystem.js';
+import { playTurn as runTurn, gameLoop as runGameLoop, endPhase as runEndPhase, executeMove as runExecuteMove, movePhase as runMovePhase, combatPhase as runCombatPhase } from './systems/TurnSystem.js';
 
 
 /* ---------------------------------------------------------------------
@@ -228,7 +228,10 @@ function ruleContext(){
     createTroop, destroyTroop, waitFor, updateHUD, document, axialToPixel:(q,r)=>axialToPixel(q,r,HEX_SIZE),
     boardX, boardY, burst, winScore, setGameOver:(value)=>{ gameOver=value; },
     showVictory, weights:AIW, cpuChooseSpawnTile:(_pi, options)=>chooseCpuSpawnTile({getTile},options),
-    waitForSpawn:chooseSpawnTileHuman
+    waitForSpawn:chooseSpawnTileHuman, hasLegalMove, hasLegalAttack, daggerAvailable,
+    gameOver:()=>gameOver, performSacrifice, executeMove, executeAttack, clearHighlights,
+    moveDecision:(pi,isPreCombat)=>CPU_MOVE_TREE({pi,isPreCombat}),
+    combatDecision:(pi)=>CPU_COMBAT_TREE({pi})
   };
 }
 
@@ -479,101 +482,9 @@ const CPU_COMBAT_TREE = Selector(
   Action(() => ({type:'pass'}))
 );
 
-async function movePhase(pi, isPreCombat){
-  const p = players[pi];
-  const btn = document.getElementById('skip-btn');
-  const daggerBtn = document.getElementById('dagger-btn');
-  while(true){
-    if(gameOver) return;
-    if(p.actionPoints<=0) break;
-    const canMove = hasLegalMove(pi);
-    const canDagger = daggerAvailable(pi);
-    if(!canMove && !canDagger) break;
-    if(p.human){
-      daggerBtn.style.display = canDagger ? 'block' : 'none';
-      daggerBtn.disabled = !canDagger;
-      if(canMove){
-        btn.disabled=false; btn.textContent='Skip Move Phase';
-        const action = await waitFor('move', pi);
-        btn.disabled=true;
-        if(action.type==='dagger'){ const did = await performSacrifice(pi); if(did) p.actionPoints--; updateHUD(); continue; }
-        if(action.type==='skip') break;
-        const troop = action.troop, target = getTile(action.target.q, action.target.r);
-        await executeMove(troop, target);
-        p.actionPoints--; updateHUD();
-      } else {
-        // no legal move, but the dagger is available -- wait on the dagger only
-        btn.disabled=false; btn.textContent='Skip Move Phase';
-        const action = await waitFor('move', pi);
-        btn.disabled=true;
-        if(action.type==='dagger'){ const did = await performSacrifice(pi); if(did) p.actionPoints--; updateHUD(); continue; }
-        if(action.type==='skip') break;
-      }
-    } else {
-      await sleep(500);
-      // Consult the behavior tree instead of an ad-hoc if/else chain --
-      // this is what decides hold vs. move vs. sacrifice vs. pass.
-      const decision = CPU_MOVE_TREE({pi, isPreCombat});
-      if(decision.type==='move'){
-        await executeMove(decision.troop, getTile(decision.target.q,decision.target.r));
-        p.actionPoints--; updateHUD();
-        await sleep(250);
-      } else if(decision.type==='sacrifice'){
-        const did = await performSacrifice(pi);
-        if(did) p.actionPoints--; updateHUD();
-        await sleep(250);
-      } else break; // 'hold' or 'pass' -- end the phase, preserving any remaining AP
-    }
-  }
-  document.getElementById('dagger-btn').style.display='none';
-  clearHighlights();
-}
+async function movePhase(pi, isPreCombat){ return runMovePhase(ruleContext(), pi, isPreCombat); }
 
-async function combatPhase(pi){
-  const p = players[pi];
-  const btn = document.getElementById('skip-btn');
-  const daggerBtn = document.getElementById('dagger-btn');
-  while(true){
-    if(gameOver) return;
-    if(p.actionPoints<=0) break;
-    const canAttack = hasLegalAttack(pi);
-    const canDagger = daggerAvailable(pi);
-    if(!canAttack && !canDagger) break;
-    if(p.human){
-      daggerBtn.style.display = canDagger ? 'block' : 'none';
-      daggerBtn.disabled = !canDagger;
-      if(canAttack){
-        btn.disabled=false; btn.textContent='Skip Combat Phase';
-        const action = await waitFor('attack', pi);
-        btn.disabled=true;
-        if(action.type==='dagger'){ const did = await performSacrifice(pi); if(did) p.actionPoints--; updateHUD(); continue; }
-        if(action.type==='skip') break;
-        await executeAttack(action.attacker, action.defender);
-        p.actionPoints--; updateHUD();
-      } else {
-        btn.disabled=false; btn.textContent='Skip Combat Phase';
-        const action = await waitFor('attack', pi);
-        btn.disabled=true;
-        if(action.type==='dagger'){ const did = await performSacrifice(pi); if(did) p.actionPoints--; updateHUD(); continue; }
-        if(action.type==='skip') break;
-      }
-    } else {
-      await sleep(550);
-      const decision = CPU_COMBAT_TREE({pi});
-      if(decision.type==='attack'){
-        await executeAttack(decision.attacker, decision.defender);
-        p.actionPoints--; updateHUD();
-        await sleep(300);
-      } else if(decision.type==='sacrifice'){
-        const did = await performSacrifice(pi);
-        if(did) p.actionPoints--; updateHUD();
-        await sleep(300);
-      } else break;
-    }
-  }
-  document.getElementById('dagger-btn').style.display='none';
-  clearHighlights();
-}
+async function combatPhase(pi){ return runCombatPhase(ruleContext(), pi); }
 
 async function endPhase(pi){
   return runEndPhase(ruleContext(), pi);
