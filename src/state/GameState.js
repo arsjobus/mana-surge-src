@@ -10,5 +10,9 @@ export class GameState {
     this.difficulty = difficulty;
     this.winScore = winScore;
     this.humanColorIndex = humanColorIndex;
+    // Match ownership is game-layer data. WebRTC peers and signaling stay in
+    // the multiplayer coordinator and are never copied into a snapshot.
+    this.session = null;
+    this.stateVersion = 0;
   }
 }

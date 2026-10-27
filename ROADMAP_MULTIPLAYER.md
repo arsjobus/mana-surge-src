@@ -78,12 +78,14 @@ Progress: `src/multiplayer/LobbyUI.js` adds the host/guest lobby, seat and CPU/o
 
 ### 5. Integrate host-authoritative match flow
 
-- [ ] Add a multiplayer session mode to `GameState` or a distinct session model without coupling it to WebRTC internals.
+- [x] Add a multiplayer session mode to `GameState` or a distinct session model without coupling it to WebRTC internals.
 - [ ] Update `TurnSystem.js` so host CPU turns run locally, host human choices are applied locally through the same validation path, and guest turns wait for validated guest actions.
 - [ ] Broadcast host-approved updates in deterministic order; guests apply only updates from the host and show waiting/turn ownership status.
 - [ ] Prevent a guest from acting for another seat or sending actions outside its active turn; return a safe rejection and keep the match synchronized.
 - [ ] Handle host disconnect as match termination for this version; show a clear result and offer solo restart. Do not implement host migration unless a later roadmap explicitly covers it.
 - [ ] If a guest disconnects, pause at a safe decision boundary and let the host retry, replace that seat with CPU, or end the match.
+
+Progress: `GameState` now reserves game-layer session/version fields, and `src/multiplayer/MatchSession.js` adds a transport-independent host/guest session model with active-seat/phase tracking, guest action authorization, ordered version acceptance, Phaser-free canonical snapshot projection, and distinct host/guest disconnect outcomes. Turn-loop action routing, snapshot application/rendering, and lobby-to-session startup are not yet connected; do not treat multiplayer matches as playable until those items and verification below are complete.
 
 ### 6. Build coverage and perform manual verification
 
