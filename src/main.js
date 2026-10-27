@@ -1,77 +1,18 @@
 /* ======================================================================
    MANA SURGE — single-file Phaser 3 implementation
    ====================================================================== */
-(function(){
-
 'use strict';
+
+import { N, INNER_RADIUS, HEX_SIZE, DIRS, key, neighbors, hexDistance, axialToPixel, hexPolygonPoints, cubeFromAxial, axialFromCube, rotate60Cube, rotateAxial, shuffle } from './utils/hex.js';
+import { sleep, tweenPromise } from './utils/async.js';
+import { TILE_INFO, LOCKING_TYPES, COLOR_META } from './data/gameData.js';
+import { WEIGHT_PRESETS } from './data/aiWeights.js';
+import { BOARD_DATA } from './data/boardData.js';
+
 
 /* ---------------------------------------------------------------------
    Hex math (pointy-top, axial coordinates)
 --------------------------------------------------------------------- */
-const N = 5;                       // board radius -> 91 hex tiles
-const INNER_RADIUS = 3;             // radius of the green "battlefield" zone; beyond this is grey stone
-const HEX_SIZE = 34;                // on-screen hex radius (center->corner)
-const DIRS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
-
-function key(q,r){ return q+','+r; }
-function neighbors(q,r){ return DIRS.map(d=>({q:q+d[0], r:r+d[1]})); }
-function hexDistance(a,b){
-  return (Math.abs(a.q-b.q)+Math.abs(a.q+a.r-b.q-b.r)+Math.abs(a.r-b.r))/2;
-}
-function axialToPixel(q,r,size){
-  return { x: size*1.5*q, y: size*Math.sqrt(3)*(r+q/2) };
-}
-function hexPolygonPoints(cx,cy,r){
-  const pts=[];
-  for(let i=0;i<6;i++){
-    const a = Math.PI/180*(60*i);
-    pts.push((cx+r*Math.cos(a)).toFixed(2)+','+(cy+r*Math.sin(a)).toFixed(2));
-  }
-  return pts.join(' ');
-}
-// 3-fold rotational symmetry helpers (rotate a hex 120° around the center).
-// Used so combat shrines / hazards are mirrored identically for all three
-// players -> a provably fair, balanced board every game.
-function cubeFromAxial(a){ return {x:a.q, z:a.r, y:-a.q-a.r}; }
-function axialFromCube(c){ return {q:c.x, r:c.z}; }
-function rotate60Cube(c){ return {x:-c.z, y:-c.x, z:-c.y}; }
-function rotateAxial(a, steps60){
-  let c = cubeFromAxial(a);
-  const n = ((steps60%6)+6)%6;
-  for(let i=0;i<n;i++) c = rotate60Cube(c);
-  return axialFromCube(c);
-}
-function shuffle(arr){
-  for(let i=arr.length-1;i>0;i--){
-    const j=Math.floor(Math.random()*(i+1));
-    [arr[i],arr[j]]=[arr[j],arr[i]];
-  }
-  return arr;
-}
-function sleep(ms){ return new Promise(res=>setTimeout(res,ms)); }
-function tweenPromise(scene, targets, props, duration, ease){
-  return new Promise(resolve=>{
-    scene.tweens.add({targets, ...props, duration, ease: ease||'Sine.easeInOut', onComplete:()=>resolve()});
-  });
-}
-
-/* ---------------------------------------------------------------------
-   Tile type descriptions
---------------------------------------------------------------------- */
-const TILE_INFO = {
-  plain:        {name:'Open Ground', desc:'No special effect. Safe to stand on.'},
-  thorns:       {name:'Thorns', desc:'Deadly! Any troop that steps here is destroyed instantly.'},
-  atk_minus:    {name:'Withering Shrine (−1 ATK)', desc:'Troops standing here fight with 1 less attack.'},
-  atk_plus:     {name:'Fury Shrine (+1 ATK)', desc:'Troops standing here fight with 1 more attack.'},
-  def_plus:     {name:'Aegis Shrine (+1 DEF)', desc:'Troops standing here defend with 1 more defense.'},
-  extra_action: {name:'Surge Shrine (Extra Action)', desc:'Grants +1 action point per turn while occupied. Locks the troop in place.'},
-  extra_spawn:  {name:'Growth Shrine (Extra Spawn)', desc:'Grants +1 troop spawn per turn while occupied. Locks the troop in place.'},
-  dagger:       {name:'Sacrificial Dagger', desc:'While you occupy this tile, you may spend 1 action point to sacrifice 3 of your troops for 1 mana point.'},
-  mana_pool:    {name:'Mana Pool', desc:'Hold this tile at the end of your turn to gain 1 mana point. Locks the troop, but it can still be attacked.'},
-  spawner:      {name:'Troop Spawner', desc:'Spawns new troops onto adjacent empty tiles each turn.'}
-};
-const LOCKING_TYPES = ['extra_action','extra_spawn','mana_pool'];
-
 /* ---------------------------------------------------------------------
    Game state
 --------------------------------------------------------------------- */
@@ -84,6 +25,9 @@ let gameOver = false;
 let scene = null;
 let bgmSound = null;
 
+/* ---------------------------------------------------------------------
+   Tile type descriptions
+--------------------------------------------------------------------- */
 // Difficulty is chosen on the start screen and locked in for the match.
 // Each tier is a full weight set for the CPU behavior tree below (see
 // scoreMoveTarget / cpuChooseAttack / cpuShouldUseDagger), not just a
@@ -105,107 +49,6 @@ let bgmSound = null;
 // `node train.js && node calibrate.js weights/evolved.json` in that
 // folder and pasting the resulting JSON back in here.
 let difficulty = 'medium';
-const WEIGHT_PRESETS = {
-  easy: {
-  "centerPull": 7.678807476069778,
-  "manaPool": 121.13289791205898,
-  "extraAction": 40.255967849865556,
-  "extraSpawn": 34.22868001717143,
-  "dagger": 20.087126680882648,
-  "atkPlus": 16.121634635375813,
-  "defPlus": 13.684348361101002,
-  "atkMinus": -16.21524911490269,
-  "thorns": -691.6652769036591,
-  "huntNearestEnemy": 6.585234231315553,
-  "setupHighValueAttack": 43.11036521010101,
-  "genericRisk": -28.887689259368926,
-  "manaAdjacencyRush": 33.92806558054872,
-  "freeKillBase": 121.1147534288466,
-  "mutualTradeBase": 38.247296552406624,
-  "pointlessBump": -7.03608219884336,
-  "loseForNothingBase": -60.648874544072896,
-  "highValueMana": 63.3619243898429,
-  "highValueLocking": 22.461005981080234,
-  "pressureLeader": 28.303810044191778,
-  "isolatedBonus": 10.125294640660286,
-  "loseForNothingHighValueMult": 0.6324288683710619,
-  "loseForNothingPressureMult": 0.6167565227253362,
-  "daggerSurplusThreshold": 10.159681478259154,
-  "daggerClosingManaThreshold": 6.703013869118877,
-  "daggerClosingTroopThreshold": 4.345207201130688,
-  "economyDecay": 0.6857935131015256,
-  "defendLockedBonus": 38.062628388404846,
-  "reinforceBonus": 8.037818318232894,
-  "pressureMarginScale": 0.6224906507879495,
-  "mistakeChance": 0.33955078125
-},
-medium: {
-  "centerPull": 7.678807476069778,
-  "manaPool": 121.13289791205898,
-  "extraAction": 40.255967849865556,
-  "extraSpawn": 34.22868001717143,
-  "dagger": 20.087126680882648,
-  "atkPlus": 16.121634635375813,
-  "defPlus": 13.684348361101002,
-  "atkMinus": -16.21524911490269,
-  "thorns": -691.6652769036591,
-  "huntNearestEnemy": 6.585234231315553,
-  "setupHighValueAttack": 43.11036521010101,
-  "genericRisk": -28.887689259368926,
-  "manaAdjacencyRush": 33.92806558054872,
-  "freeKillBase": 121.1147534288466,
-  "mutualTradeBase": 38.247296552406624,
-  "pointlessBump": -7.03608219884336,
-  "loseForNothingBase": -60.648874544072896,
-  "highValueMana": 63.3619243898429,
-  "highValueLocking": 22.461005981080234,
-  "pressureLeader": 28.303810044191778,
-  "isolatedBonus": 10.125294640660286,
-  "loseForNothingHighValueMult": 0.6324288683710619,
-  "loseForNothingPressureMult": 0.6167565227253362,
-  "daggerSurplusThreshold": 10.159681478259154,
-  "daggerClosingManaThreshold": 6.703013869118877,
-  "daggerClosingTroopThreshold": 4.345207201130688,
-  "economyDecay": 0.6857935131015256,
-  "defendLockedBonus": 38.062628388404846,
-  "reinforceBonus": 8.037818318232894,
-  "pressureMarginScale": 0.6224906507879495,
-  "mistakeChance": 0.18544921874999998
-},
-hard: {
-  "centerPull": 7.678807476069778,
-  "manaPool": 121.13289791205898,
-  "extraAction": 40.255967849865556,
-  "extraSpawn": 34.22868001717143,
-  "dagger": 20.087126680882648,
-  "atkPlus": 16.121634635375813,
-  "defPlus": 13.684348361101002,
-  "atkMinus": -16.21524911490269,
-  "thorns": -691.6652769036591,
-  "huntNearestEnemy": 6.585234231315553,
-  "setupHighValueAttack": 43.11036521010101,
-  "genericRisk": -28.887689259368926,
-  "manaAdjacencyRush": 33.92806558054872,
-  "freeKillBase": 121.1147534288466,
-  "mutualTradeBase": 38.247296552406624,
-  "pointlessBump": -7.03608219884336,
-  "loseForNothingBase": -60.648874544072896,
-  "highValueMana": 63.3619243898429,
-  "highValueLocking": 22.461005981080234,
-  "pressureLeader": 28.303810044191778,
-  "isolatedBonus": 10.125294640660286,
-  "loseForNothingHighValueMult": 0.6324288683710619,
-  "loseForNothingPressureMult": 0.6167565227253362,
-  "daggerSurplusThreshold": 10.159681478259154,
-  "daggerClosingManaThreshold": 6.703013869118877,
-  "daggerClosingTroopThreshold": 4.345207201130688,
-  "economyDecay": 0.6857935131015256,
-  "defendLockedBonus": 38.062628388404846,
-  "reinforceBonus": 8.037818318232894,
-  "pressureMarginScale": 0.6224906507879495,
-  "mistakeChance": 0
-}
-};
 function AIW(){ return WEIGHT_PRESETS[difficulty]; }
 
 // Victory threshold, chosen on the start screen via the slider (10/20/30/40/50).
@@ -217,11 +60,6 @@ let winScore = 10;
 // sits in; the other two are always CPU-controlled, and turn order still
 // goes clockwise Red -> Blue -> Green regardless of which one is human.
 let humanColorIndex = 0;
-const COLOR_META = [
-  {name:'Red',   colorHex:0xff5757},
-  {name:'Blue',  colorHex:0x5aa9ff},
-  {name:'Green', colorHex:0x4fe08a},
-];
 let boardCX = 0, boardCY = 0;
 let pending = null; // {kind, pi, resolve, selected, options}
 let highlightSprites = [];
@@ -275,103 +113,6 @@ function hasLegalAttack(pi){
 // rotational symmetry validation) from the reference board image. This is a
 // fixed, hand-authored layout so every match is provably identical and fair
 // for all three players -- not randomly generated.
-const BOARD_DATA = [
-{q:-5,r:0,type:'spawner',biome:'grey',owner:0},
-{q:-5,r:1,type:'plain',biome:'grey'},
-{q:-5,r:2,type:'plain',biome:'grey'},
-{q:-5,r:3,type:'plain',biome:'grey'},
-{q:-5,r:4,type:'atk_minus',biome:'grey'},
-{q:-5,r:5,type:'extra_action',biome:'grey'},
-{q:-4,r:-1,type:'plain',biome:'grey'},
-{q:-4,r:0,type:'plain',biome:'grey'},
-{q:-4,r:1,type:'atk_plus',biome:'green'},
-{q:-4,r:2,type:'thorns',biome:'green'},
-{q:-4,r:3,type:'atk_plus',biome:'green'},
-{q:-4,r:4,type:'def_plus',biome:'green'},
-{q:-4,r:5,type:'atk_minus',biome:'grey'},
-{q:-3,r:-2,type:'plain',biome:'grey'},
-{q:-3,r:-1,type:'atk_plus',biome:'green'},
-{q:-3,r:0,type:'atk_plus',biome:'green'},
-{q:-3,r:1,type:'def_plus',biome:'green'},
-{q:-3,r:2,type:'atk_minus',biome:'green'},
-{q:-3,r:3,type:'def_plus',biome:'green'},
-{q:-3,r:4,type:'atk_plus',biome:'green'},
-{q:-3,r:5,type:'plain',biome:'grey'},
-{q:-2,r:-3,type:'plain',biome:'grey'},
-{q:-2,r:-2,type:'thorns',biome:'green'},
-{q:-2,r:-1,type:'def_plus',biome:'green'},
-{q:-2,r:0,type:'dagger',biome:'grey'},
-{q:-2,r:1,type:'atk_minus',biome:'green'},
-{q:-2,r:2,type:'extra_spawn',biome:'grey'},
-{q:-2,r:3,type:'atk_minus',biome:'green'},
-{q:-2,r:4,type:'thorns',biome:'green'},
-{q:-2,r:5,type:'plain',biome:'grey'},
-{q:-1,r:-4,type:'atk_minus',biome:'grey'},
-{q:-1,r:-3,type:'atk_plus',biome:'green'},
-{q:-1,r:-2,type:'atk_minus',biome:'green'},
-{q:-1,r:-1,type:'atk_minus',biome:'green'},
-{q:-1,r:0,type:'atk_plus',biome:'green'},
-{q:-1,r:1,type:'def_plus',biome:'green'},
-{q:-1,r:2,type:'atk_minus',biome:'green'},
-{q:-1,r:3,type:'def_plus',biome:'green'},
-{q:-1,r:4,type:'atk_plus',biome:'green'},
-{q:-1,r:5,type:'plain',biome:'grey'},
-{q:0,r:-5,type:'extra_action',biome:'grey'},
-{q:0,r:-4,type:'def_plus',biome:'green'},
-{q:0,r:-3,type:'def_plus',biome:'green'},
-{q:0,r:-2,type:'extra_spawn',biome:'grey'},
-{q:0,r:-1,type:'def_plus',biome:'green'},
-{q:0,r:0,type:'mana_pool',biome:'green'},
-{q:0,r:1,type:'atk_plus',biome:'green'},
-{q:0,r:2,type:'dagger',biome:'grey'},
-{q:0,r:3,type:'atk_plus',biome:'green'},
-{q:0,r:4,type:'plain',biome:'grey'},
-{q:0,r:5,type:'spawner',biome:'grey',owner:2},
-{q:1,r:-5,type:'atk_minus',biome:'grey'},
-{q:1,r:-4,type:'atk_plus',biome:'green'},
-{q:1,r:-3,type:'atk_minus',biome:'green'},
-{q:1,r:-2,type:'atk_minus',biome:'green'},
-{q:1,r:-1,type:'atk_plus',biome:'green'},
-{q:1,r:0,type:'def_plus',biome:'green'},
-{q:1,r:1,type:'atk_minus',biome:'green'},
-{q:1,r:2,type:'def_plus',biome:'green'},
-{q:1,r:3,type:'atk_plus',biome:'green'},
-{q:1,r:4,type:'plain',biome:'grey'},
-{q:2,r:-5,type:'plain',biome:'grey'},
-{q:2,r:-4,type:'thorns',biome:'green'},
-{q:2,r:-3,type:'def_plus',biome:'green'},
-{q:2,r:-2,type:'dagger',biome:'grey'},
-{q:2,r:-1,type:'atk_minus',biome:'green'},
-{q:2,r:0,type:'extra_spawn',biome:'grey'},
-{q:2,r:1,type:'atk_minus',biome:'green'},
-{q:2,r:2,type:'thorns',biome:'green'},
-{q:2,r:3,type:'plain',biome:'grey'},
-{q:3,r:-5,type:'plain',biome:'grey'},
-{q:3,r:-4,type:'atk_plus',biome:'green'},
-{q:3,r:-3,type:'atk_plus',biome:'green'},
-{q:3,r:-2,type:'def_plus',biome:'green'},
-{q:3,r:-1,type:'atk_minus',biome:'green'},
-{q:3,r:0,type:'def_plus',biome:'green'},
-{q:3,r:1,type:'atk_plus',biome:'green'},
-{q:3,r:2,type:'plain',biome:'grey'},
-{q:4,r:-5,type:'plain',biome:'grey'},
-{q:4,r:-4,type:'plain',biome:'grey'},
-{q:4,r:-3,type:'atk_plus',biome:'green'},
-{q:4,r:-2,type:'thorns',biome:'green'},
-{q:4,r:-1,type:'atk_plus',biome:'green'},
-{q:4,r:0,type:'def_plus',biome:'green'},
-{q:4,r:1,type:'atk_minus',biome:'grey'},
-{q:5,r:-5,type:'spawner',biome:'grey',owner:1},
-{q:5,r:-4,type:'plain',biome:'grey'},
-{q:5,r:-3,type:'plain',biome:'grey'},
-{q:5,r:-2,type:'plain',biome:'grey'},
-{q:5,r:-1,type:'atk_minus',biome:'grey'},
-{q:5,r:0,type:'extra_action',biome:'grey'}
-];
-
-/* ---------------------------------------------------------------------
-   Board generation
---------------------------------------------------------------------- */
 function buildBoard(){
   tiles = new Map();
   BOARD_DATA.forEach(d=>{
@@ -1622,4 +1363,3 @@ document.getElementById('dagger-btn').addEventListener('click', ()=>{
 document.getElementById('restart-btn').addEventListener('click', ()=>{ location.reload(); });
 document.getElementById('playagain-btn').addEventListener('click', ()=>{ location.reload(); });
 
-})();

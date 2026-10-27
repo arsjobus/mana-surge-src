@@ -95,11 +95,11 @@ Cross-module dependencies to watch: board queries are used by rendering, input, 
 
 ### 2. Extract pure data and utilities
 
-- [ ] Move hex coordinate math and general async helpers into `utils/` without changing their behavior.
-- [ ] Move tile descriptions, locking tile types, colors, and other static rules into `data/gameData.js`.
-- [ ] Move the fixed `BOARD_DATA` layout into `data/boardData.js` and export it as read-only data.
-- [ ] Move difficulty weight presets into `data/aiWeights.js`; preserve the trainer documentation and weight values.
-- [ ] Update imports and confirm there are no circular dependencies among these modules.
+- [x] Move hex coordinate math and general async helpers into `utils/` without changing their behavior.
+- [x] Move tile descriptions, locking tile types, colors, and other static rules into `data/gameData.js`.
+- [x] Move the fixed `BOARD_DATA` layout into `data/boardData.js` and export it as read-only data.
+- [x] Move difficulty weight presets into `data/aiWeights.js`; preserve the trainer documentation and weight values.
+- [x] Update imports and confirm there are no circular dependencies among these modules.
 
 ### 3. Separate board and troop responsibilities
 

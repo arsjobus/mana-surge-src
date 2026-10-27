@@ -1,9 +1,11 @@
 # Mana Surge
 
-## Setup HTTP Server
+## Setup and Quick Start
 
-- `npm install http-server -g`
+Serve the repository root over HTTP so the browser can load ES modules, Phaser, and music:
 
-## Quick Start
+```sh
+python3 -m http.server 8000
+```
 
-- `http-server .`
+Then open <http://localhost:8000>. ES modules require HTTP(S); opening `index.html` directly with `file://` will not work.
