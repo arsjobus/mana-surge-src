@@ -134,12 +134,11 @@ Cross-module dependencies to watch: board queries are used by rendering, input, 
 
 ### 7. Make boot explicit and finish the migration
 
-- [ ] Add `config/gameConfig.js` for the Phaser configuration and scene registration.
-- [ ] Change `src/main.js` into the small application entry point that imports the config and starts Phaser after the start-screen action.
-- [ ] Update `index.html` to load `src/main.js` as an ES module (`type="module"`) after confirming the target browsers support the chosen module syntax.
-- [ ] Keep Phaser's current local script include available globally unless the project deliberately adopts a package-based Phaser import later.
-- [ ] Remove the old IIFE wrapper and any obsolete duplicate code only after all callers use the extracted modules.
-- [ ] Update `README.md` with the supported local serving command and note that ES modules require HTTP(S), not direct `file://` opening.
+- [x] Add `config/gameConfig.js` for the Phaser configuration and scene registration.
+- [x] Change `src/main.js` into the small application entry point that wires the start screen to Phaser startup; keep game assembly in `GameRuntime.js`.
+- [x] Load `src/main.js` as an ES module from `index.html`; retain Phaser's local global script include.
+- [x] Keep the code in native ES modules without an IIFE wrapper or duplicate game implementation.
+- [x] Document the supported local serving command and HTTP(S) requirement in `README.md`.
 
 ## Completion criteria
 
