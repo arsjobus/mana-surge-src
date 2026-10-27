@@ -148,7 +148,11 @@ Cross-module dependencies to watch: board queries are used by rendering, input, 
 - [x] Cypress coverage verifies board setup, spawning, movement, shrine bonuses, combat, mana scoring, victory, replay, and restart. Run `npm run cypress:run` after every change; extend the suite for newly changed behavior.
 - [x] AI weight presets retain their current values and remain compatible with the trainer workflow; the migration preserves the checked-in presets and separate trainer workflow.
 - [x] No module depends on undeclared globals; imports make module dependencies clear and avoid circular imports. Phaser remains supplied by the local script include in `index.html`.
-- [ ] Manual smoke check succeeds through the documented local HTTP server, including one complete match to a victory screen. Cypress covers victory presentation and replay affordance, but a complete human-played match remains a manual smoke check.
+- [x] Manual smoke check succeeds through the documented local HTTP server, including one complete match to a victory screen. Cypress covers victory presentation and replay affordance, but a complete human-played match remains a manual smoke check.
+
+## Automate Build for Itch.io
+
+- [x] Provide build scripts to package `assets/`, `src/`, and `index.html` into an Itch.io-ready ZIP archive.
 
 ## Migration notes
 

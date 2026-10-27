@@ -1,0 +1,105 @@
+# Mana Surge Multiplayer Roadmap
+
+## Goal
+
+Add online matches for up to three human players using the existing three game seats. One player hosts the match and is also a player; the host is authoritative for game state and turn resolution. Preserve the current solo game, CPU opponents, rules, and local browser launch flow.
+
+This roadmap targets casual private matches. A host-authoritative peer-to-peer game prevents ordinary clients from directly writing authoritative state, but it cannot prevent a malicious host from changing the game or guarantee competitive anti-cheat. No account system, matchmaking, public lobby directory, or server-side persistence is in scope for the initial version.
+
+## Is serverless multiplayer possible?
+
+Yes, with practical limits. Use browser WebRTC data channels for game messages. WebRTC does not define how peers find each other or exchange connection setup data, so a no-central-server launch flow must exchange offers, answers, and ICE candidates out of band. The first version can provide copy/paste connection codes (and optionally QR codes) between the host and each joining player. The host can form a small star topology with one direct connection per guest; this suits three seats and keeps game traffic simple.
+
+Direct connectivity is not guaranteed across every NAT, firewall, or browser network. STUN can help peers discover usable routes, but some network combinations require a TURN relay. TURN carries traffic through a server, so it is not strictly serverless. The app should report connection failure clearly and document this tradeoff. Manual signaling avoids operating a signaling service, but is less convenient than a room-code lobby.
+
+WebRTC encrypts data in transit, but encryption does not authenticate a real-world identity. A private invite code is a connection secret, not proof of who joined. Treat all remote messages as untrusted, validate them, limit message size/rate, and never execute remote-provided code or HTML. Keep host authority and validation in the game layer rather than trusting a guest's claimed state.
+
+## Current architecture and multiplayer boundary
+
+The game is native browser ES modules with Phaser supplied by a local script. Rules and turn orchestration live in `src/systems/`, mutable match data in `src/state/GameState.js`, scene assembly in `src/GameRuntime.js`, and browser UI in `src/ui/`. `GameState` already creates three seats and `TurnSystem.js` cycles among them. Currently only one seat is human-controlled; the other two use the CPU.
+
+Add networking as a separate transport/session layer. Keep WebRTC objects, connection state, and signaling payloads out of `GameState`. Keep the rules engine deterministic where practical and make the host's accepted actions the source of truth. Do not replicate Phaser sprites or DOM state.
+
+## Architecture decisions
+
+- **Seat count:** Keep three total seats, with the host occupying one seat. The other seats can be guests or CPUs, so host-plus-two guests fills the match. This matches the existing board and victory logic.
+- **Authority:** The host owns the authoritative `GameState`, validates guest actions against the current phase, active seat, legal choices, and game rules, then broadcasts accepted actions and resulting state/version information. Guest clients render the host-approved match and only submit actions for their assigned seat.
+- **Topology:** Host-star for up to two guests. A guest connects only to the host; guests do not send gameplay messages directly to each other.
+- **Transport:** WebRTC `RTCDataChannel` for gameplay messages. Add a small transport interface so turn/rule code can operate without depending directly on WebRTC.
+- **Initial signaling:** Manual exchange of bounded, versioned connection descriptions and ICE candidates. Do not require a signaling backend or lobby service for this milestone.
+- **NAT traversal:** Support configurable STUN servers, with no baked-in dependency on an undocumented public service. Explain that STUN does not guarantee connectivity and TURN requires a relay service. Leave TURN configuration as an optional future deployment setting.
+- **Fallback:** Solo play remains available. Do not silently turn a disconnected guest into a CPU or change seat ownership; expose an explicit host action to replace a disconnected guest with a CPU or end the match.
+- **Scope boundary:** No voice/video, spectators, chat, matchmaking, ranked play, persistent accounts, or save/resume in the initial release.
+
+## Step-by-step checklist
+
+### 1. Define the session protocol and rules boundary
+
+- [ ] Inventory every human decision requested during spawn, movement, combat, dagger/sacrifice, skip, and phase progression; identify the smallest action messages needed to represent each choice.
+- [ ] Define a versioned JSON message envelope with match ID, sender seat, monotonically increasing sequence number, message type, and bounded payload.
+- [ ] Define host-to-guest and guest-to-host messages, including hello/seat assignment, action request, accepted action/state update, rejection, heartbeat, disconnect, and protocol-version mismatch.
+- [ ] Specify validation for sender seat, current phase, turn ownership, legal moves/targets, payload shape, message size, and replayed/out-of-order sequence numbers.
+- [ ] Decide how guests stay synchronized: begin with host-approved action/state snapshots at phase or action boundaries; add hashes/checkpoints to detect divergence.
+- [ ] Keep private host/guest display state separate from shared match state. Do not include pending promise resolvers, Phaser objects, DOM nodes, or AI internals in network snapshots.
+
+### 2. Refactor human input into transportable actions
+
+- [ ] Refactor `ui/BoardInput.js` and turn-system choice points so local input produces typed action intents rather than resolving shared pending callbacks directly.
+- [ ] Add a local action adapter that preserves existing solo behavior without changing game rules or controls.
+- [ ] Add host validation and action application functions that can be called without DOM or Phaser dependencies where practical.
+- [ ] Ensure CPU-controlled seats still work in solo games and can be selected by the host for unfilled seats in multiplayer.
+- [ ] Confirm simultaneous combat and any random choices are resolved by the host and represented in the shared result, so clients do not independently resolve them.
+
+### 3. Add a WebRTC transport module
+
+- [ ] Add `src/multiplayer/` modules for the WebRTC peer connection, data channel, message codec/validation, session coordinator, and signaling-code import/export.
+- [ ] Create one host-to-guest data channel per guest, with ordered reliable delivery for game actions.
+- [ ] Apply strict payload size and message-rate limits, validate all parsed messages, and handle malformed input without crashing or mutating the match.
+- [ ] Add connection lifecycle handling for connecting, connected, disconnected, failed, and closed states, plus explicit retry/leave paths.
+- [ ] Ensure cleanup closes data channels, peer connections, listeners, timers, and any pending UI choices on restart or leaving a match.
+- [ ] Keep signaling data short-lived and avoid storing it in local storage or logging it by default.
+
+### 4. Add host and guest lobby flows
+
+- [ ] Add a multiplayer choice on the start screen while preserving solo setup and settings.
+- [ ] Let the host select their seat/color, win score, and whether unfilled seats are CPU-controlled or open to guests.
+- [ ] Let the host create a join offer/code for each open guest seat and show connection status and assigned seat.
+- [ ] Let a guest paste/import the host offer, return an answer code, and confirm the assigned seat before joining the match.
+- [ ] Support cancellation, invalid/expired code feedback, duplicate seat rejection, browser refresh/leave behavior, and a clear start-match action once the host is ready.
+- [ ] Make clear in the UI that invite codes grant access to a seat and should only be shared with intended players.
+
+### 5. Integrate host-authoritative match flow
+
+- [ ] Add a multiplayer session mode to `GameState` or a distinct session model without coupling it to WebRTC internals.
+- [ ] Update `TurnSystem.js` so host CPU turns run locally, host human choices are applied locally through the same validation path, and guest turns wait for validated guest actions.
+- [ ] Broadcast host-approved updates in deterministic order; guests apply only updates from the host and show waiting/turn ownership status.
+- [ ] Prevent a guest from acting for another seat or sending actions outside its active turn; return a safe rejection and keep the match synchronized.
+- [ ] Handle host disconnect as match termination for this version; show a clear result and offer solo restart. Do not implement host migration unless a later roadmap explicitly covers it.
+- [ ] If a guest disconnects, pause at a safe decision boundary and let the host retry, replace that seat with CPU, or end the match.
+
+### 6. Build coverage and perform manual verification
+
+- [ ] Add unit or browser tests for protocol validation, host action authorization, sequence handling, and guest rejection paths.
+- [ ] Extend Cypress coverage for solo regression, host setup, guest seat assignment, and multiplayer UI states using a deterministic fake transport where appropriate.
+- [ ] Manually test two- and three-browser sessions on the same machine/network, including legal and illegal actions, victory, restart/leave, and disconnects.
+- [ ] Manually test a connection between separate networks and document whether STUN-only succeeds; do not claim universal reachability based only on local-network tests.
+- [ ] Check browser consoles for errors and verify cleanup after leaving or restarting a session.
+- [ ] Document setup, connection-code exchange, supported browser requirements, privacy implications, and TURN limitations in `README.md` after implementation.
+
+## Completion criteria
+
+- [ ] Existing solo games, CPU behavior, turn rules, and restart flow continue to work.
+- [ ] One host and up to two guests can play a complete match in the existing three seats, with optional CPU seats.
+- [ ] Guests can only submit actions for their assigned seat and only when authorized by the host's current match state.
+- [ ] The host is the sole source of truth for action order, game rules, combat results, and victory.
+- [ ] Unsupported, malformed, stale, or oversized network messages are rejected safely and do not corrupt state.
+- [ ] Connection failure, player departure, and host departure have visible, predictable outcomes.
+- [ ] A no-central-server flow is documented with manual signaling; connectivity caveats and optional TURN relay requirements are stated accurately.
+- [ ] No identity, privacy, anti-cheat, or cross-network reliability guarantees are claimed beyond what the design provides.
+
+## Notes and future options
+
+- WebRTC signaling is deliberately out of scope for the initial transport milestone. If manual offer/answer exchange proves too cumbersome, a later optional signaling service can exchange setup messages without becoming the game-state authority.
+- A TURN relay can improve reachability but routes data through an operator's infrastructure and has bandwidth/cost implications. Offer it as an explicit deployment option, not as a hidden requirement.
+- Host authority is appropriate for friendly matches, but a dishonest host can falsify results. Competitive play would need a trusted server or a substantially different verification model.
+- Keep networking feature flags and solo startup isolated so the current game remains usable when WebRTC is unavailable or unsupported.

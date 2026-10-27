@@ -2,6 +2,7 @@
   "name": "mana-surge",
   "private": true,
   "scripts": {
+    "build:itch": "python3 scripts/build-itch.py",
     "serve": "python3 -m http.server 8000",
     "cypress:open": "cypress open",
     "cypress:run": "cypress run"
