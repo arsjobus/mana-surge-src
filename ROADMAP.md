@@ -125,12 +125,12 @@ Cross-module dependencies to watch: board queries are used by rendering, input, 
 
 ### 6. Extract user interface and scene orchestration
 
-- [ ] Move selection, click handling, and board highlights into `ui/BoardInput.js`.
-- [ ] Move phase display, mana display, log, and action buttons into `ui/GameHUD.js`.
-- [ ] Move help, credits, victory, and start-screen DOM wiring into `ui/ModalUI.js`.
-- [ ] Move canvas-to-DOM sizing behavior into `ui/UIStage.js`.
-- [ ] Move background music loading and mute controls into `systems/AudioSystem.js`.
-- [ ] Reduce `scenes/MainScene.js` to Phaser lifecycle hooks and calls that assemble the state, board, systems, and UI.
+- [x] Move selection, click handling, and board highlights into `ui/BoardInput.js`.
+- [x] Move phase display, mana display, log, and action buttons into `ui/GameHUD.js`.
+- [x] Move help, credits, victory, and start-screen DOM wiring into `ui/ModalUI.js`.
+- [x] Move canvas-to-DOM sizing behavior into `ui/UIStage.js`.
+- [x] Move background music loading and mute controls into `systems/AudioSystem.js`.
+- [x] Reduce `scenes/MainScene.js` to Phaser lifecycle hooks and calls that assemble the state, board, systems, and UI.
 
 ### 7. Make boot explicit and finish the migration
 
