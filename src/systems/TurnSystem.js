@@ -39,7 +39,7 @@ export async function endPhase(context, pi) {
 
 /** Run a move phase using rule, AI, and interaction callbacks supplied by the scene. */
 export async function movePhase(context, pi, isPreCombat) {
-  const { players, hasLegalMove, daggerAvailable, document, gameOver, waitFor, validateIntent, performSacrifice, setDecision,
+  const { players, troops, hasLegalMove, daggerAvailable, document, gameOver, waitFor, validateIntent, performSacrifice, setDecision,
     updateHUD, getTile, executeMove, sleep, moveDecision, clearHighlights, requestGuestMove, actionApplied } = context;
   const player = players()[pi];
   setDecision?.(pi, isPreCombat ? 'move1' : 'move2');
@@ -73,9 +73,14 @@ export async function movePhase(context, pi, isPreCombat) {
         }
       }
       if (action.type === 'dagger') {
+        const troopIdsBefore = troops().filter((troop) => troop.owner === pi).map((troop) => troop.id);
         const didSacrifice = await performSacrifice(pi);
         if (context.multiplayerRole === 'guest') continue;
-        if (didSacrifice) { player.actionPoints--; actionApplied?.({ type: 'sacrifice' }); }
+        if (didSacrifice) {
+          player.actionPoints--;
+          const remainingIds = new Set(troops().map((troop) => troop.id));
+          actionApplied?.({ type: 'sacrifice', troopIds: troopIdsBefore.filter((id) => !remainingIds.has(id)) });
+        }
         updateHUD();
         continue;
       }
@@ -97,8 +102,13 @@ export async function movePhase(context, pi, isPreCombat) {
         actionApplied?.({ type: 'move', troopId: decision.troop.id, to: decision.target });
         await sleep(250);
       } else if (decision.type === 'sacrifice') {
+        const troopIdsBefore = troops().filter((troop) => troop.owner === pi).map((troop) => troop.id);
         const didSacrifice = await performSacrifice(pi);
-        if (didSacrifice) { player.actionPoints--; actionApplied?.({ type: 'sacrifice' }); }
+        if (didSacrifice) {
+          player.actionPoints--;
+          const remainingIds = new Set(troops().map((troop) => troop.id));
+          actionApplied?.({ type: 'sacrifice', troopIds: troopIdsBefore.filter((id) => !remainingIds.has(id)) });
+        }
         updateHUD();
         await sleep(250);
       } else break;
@@ -110,7 +120,7 @@ export async function movePhase(context, pi, isPreCombat) {
 
 /** Run combat actions until the player passes or runs out of action points. */
 export async function combatPhase(context, pi) {
-  const { players, hasLegalAttack, daggerAvailable, document, gameOver, waitFor, performSacrifice, setDecision,
+  const { players, troops, hasLegalAttack, daggerAvailable, document, gameOver, waitFor, performSacrifice, setDecision,
     updateHUD, executeAttack, sleep, combatDecision, clearHighlights, multiplayerRole, requestGuestMove, actionApplied } = context;
   const player = players()[pi];
   setDecision?.(pi, 'combat');
@@ -143,9 +153,14 @@ export async function combatPhase(context, pi) {
         }
       }
       if (action.type === 'dagger') {
+        const troopIdsBefore = troops().filter((troop) => troop.owner === pi).map((troop) => troop.id);
         const didSacrifice = await performSacrifice(pi);
         if (multiplayerRole === 'guest') continue;
-        if (didSacrifice) { player.actionPoints--; actionApplied?.({ type: 'sacrifice' }); }
+        if (didSacrifice) {
+          player.actionPoints--;
+          const remainingIds = new Set(troops().map((troop) => troop.id));
+          actionApplied?.({ type: 'sacrifice', troopIds: troopIdsBefore.filter((id) => !remainingIds.has(id)) });
+        }
         updateHUD();
         continue;
       }
@@ -164,8 +179,13 @@ export async function combatPhase(context, pi) {
         actionApplied?.({ type: 'attack', attackerId: decision.attacker.id, defenderId: decision.defender.id });
         await sleep(300);
       } else if (decision.type === 'sacrifice') {
+        const troopIdsBefore = troops().filter((troop) => troop.owner === pi).map((troop) => troop.id);
         const didSacrifice = await performSacrifice(pi);
-        if (didSacrifice) { player.actionPoints--; actionApplied?.({ type: 'sacrifice' }); }
+        if (didSacrifice) {
+          player.actionPoints--;
+          const remainingIds = new Set(troops().map((troop) => troop.id));
+          actionApplied?.({ type: 'sacrifice', troopIds: troopIdsBefore.filter((id) => !remainingIds.has(id)) });
+        }
         updateHUD();
         await sleep(300);
       } else break;

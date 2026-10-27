@@ -431,7 +431,7 @@ const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMa
       const { role, hostSeat, localSeat, roster, matchId, peers, peer } = multiplayerSetup;
       const local = role === 'host' ? hostSeat : localSeat;
       gameState.players = COLOR_META.map((c, i) => ({ ...c, human: role === 'host' ? roster[i]?.controller !== 'cpu' : i === local, mana: 0, actionPoints: 1 }));
-      const coordinator = new SessionCoordinator({ role, matchId, localSeat: local, onMessage: ({ seat, message }) => {
+      const coordinator = new SessionCoordinator({ role, matchId, localSeat: local, onMessage: async ({ seat, message }) => {
         if (message.type === 'actionRequest' && role === 'host' && gameState.session) {
           const action = message.payload;
           const phase = gameState.session.phase;
@@ -452,14 +452,27 @@ const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMa
           let rejection = null;
           if (message.rateLimited) rejection = 'RATE_LIMITED';
           else if (gameState.session.roster?.[seat]?.controller !== 'guest') rejection = 'NOT_YOUR_SEAT';
-          else if (gameState.session.activeSeat !== seat || pending?.playerIndex !== seat || pending?.kind !== pendingKind) rejection = 'NOT_YOUR_TURN';
+          else if (gameState.session.activeSeat !== seat || pending?.playerIndex !== seat || (action.type === 'sacrifice' ? !['move', 'attack', 'sacrifice'].includes(pending?.kind) : pending?.kind !== pendingKind)) rejection = 'NOT_YOUR_TURN';
           else if (!['move1', 'move2', 'spawn', 'combat'].includes(phase)) rejection = 'WRONG_PHASE';
           else if (!checked) rejection = 'ILLEGAL_ACTION';
           if (rejection) coordinator.sendTo(seat, 'actionRejected', { requestSeq, code: rejection });
           else {
             const authorized = gameState.session.authorizeRequest(seat, action, requestSeq);
             if (!authorized.ok) coordinator.sendTo(seat, 'actionRejected', { requestSeq, code: authorized.code });
-            else { localActions.submit(intent); if (action.type === 'cancelSacrifice') gameState.session.publishAccepted(action, { type: 'cancelSacrifice' }, gameState.session.createSnapshot(gameState)); }
+            else if (action.type === 'sacrifice') {
+              const player = gameState.players[seat];
+              const context = { ...ruleContext(), waitFor: async () => intent };
+              const succeeded = await resolveSacrifice(context, seat);
+              if (succeeded) {
+                player.actionPoints--;
+                // The host's turn loop is waiting for its own local choice for
+                // this guest seat. Release that prompt after applying the guest
+                // action so it can continue from the updated authoritative state.
+                localActions.submit({ type: 'skip' });
+                gameState.session.publishAccepted(action, { type: 'sacrifice' }, gameState.session.createSnapshot(gameState));
+                updateHUD();
+              } else coordinator.sendTo(seat, 'actionRejected', { requestSeq, code: 'ILLEGAL_ACTION' });
+            } else { localActions.submit(intent); if (action.type === 'cancelSacrifice') gameState.session.publishAccepted(action, { type: 'cancelSacrifice' }, gameState.session.createSnapshot(gameState)); }
           }
         }
         if (message.type === 'hello' && role === 'host' && gameState.session) {
