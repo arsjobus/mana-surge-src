@@ -112,8 +112,8 @@ The guest host-disconnect path is now connected to a match-ended modal: it stops
 - [ ] The host is the sole source of truth for action order, game rules, combat results, and victory.
 - [ ] Unsupported, malformed, stale, or oversized network messages are rejected safely and do not corrupt state.
 - [ ] Connection failure, player departure, and host departure have visible, predictable outcomes.
-- [ ] A no-central-server flow is documented with manual signaling; connectivity caveats and optional TURN relay requirements are stated accurately.
-- [ ] No identity, privacy, anti-cheat, or cross-network reliability guarantees are claimed beyond what the design provides.
+- [x] A no-central-server flow is documented with manual signaling; connectivity caveats and optional TURN relay requirements are stated accurately. See the multiplayer prototype section in `README.md`; it also states that playable matches are not implemented yet.
+- [x] No identity, privacy, anti-cheat, or cross-network reliability guarantees are claimed beyond what the design provides.
 
 ## Notes and future options
 
