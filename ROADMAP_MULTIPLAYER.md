@@ -95,6 +95,8 @@ Snapshot flow is now connected to the Phaser runtime. The host publishes a canon
 
 The guest host-disconnect path is now connected to a match-ended modal: it stops the session, cancels pending local input, and uses the existing Restart control to return to the solo setup on reload. Host migration remains out of scope. Other multiplayer gameplay and guest disconnect handling remain outstanding.
 
+**Turn integration slice completed: guest moves in Move Phase I.** When the host turn loop is waiting for a guest's Move Phase I choice, it accepts only a move or pass request for that guest seat, validates the intent against the host's current board, and submits the validated intent through the existing turn loop. The host applies the move and publishes an incremented `actionAccepted` snapshot; the guest waits for and applies that snapshot before requesting another move. Focused session coverage exercises the authorized request, host update, and guest snapshot acceptance. This does not complete the turn-system checklist item: spawn, Move Phase II, combat, dagger/sacrifice, CPU action publication, and complete match progression still need integration. The next implementation slice is guest spawning in the host's authoritative Start Phase, followed by Move Phase II and combat using the same request/validate/apply/broadcast pattern.
+
 ### 6. Build coverage and perform manual verification
 
 - [x] Add unit or browser tests for protocol validation, host action authorization, sequence handling, and guest rejection paths.
@@ -109,6 +111,8 @@ Coverage: `cypress/e2e/multiplayer.cy.js` checks protocol envelope round trips a
 Additional Cypress coverage: `multiplayer.cy.js` checks host seat selection, CPU/open guest seat configuration, lobby cancellation, malformed invite feedback, and deterministic guest seat assignment. Complete multiplayer flow coverage remains outstanding.
 
 The multiplayer Cypress coverage now also exercises the guest handshake and host seat-assignment message through an in-memory fake transport. The full suite passes (15 tests across completion, gameplay, and multiplayer specs); this verifies protocol/session handoff behavior without claiming a live WebRTC match is playable.
+
+Additional focused Cypress coverage exercises the Move Phase I action request and host-approved snapshot acceptance at the session boundary. Browser-to-browser turn integration and full-match coverage remain outstanding.
 
 ## Completion criteria
 

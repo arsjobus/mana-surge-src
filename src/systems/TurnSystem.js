@@ -40,7 +40,7 @@ export async function endPhase(context, pi) {
 /** Run a move phase using rule, AI, and interaction callbacks supplied by the scene. */
 export async function movePhase(context, pi, isPreCombat) {
   const { players, hasLegalMove, daggerAvailable, document, gameOver, waitFor, validateIntent, performSacrifice, setDecision,
-    updateHUD, getTile, executeMove, sleep, moveDecision, clearHighlights } = context;
+    updateHUD, getTile, executeMove, sleep, moveDecision, clearHighlights, requestGuestMove, actionApplied } = context;
   const player = players()[pi];
   setDecision?.(pi, isPreCombat ? 'move1' : 'move2');
   const skipButton = document.getElementById('skip-btn');
@@ -60,16 +60,31 @@ export async function movePhase(context, pi, isPreCombat) {
       skipButton.disabled = true;
       const action = validateIntent(intent, 'move', pi);
       if (!action) continue;
+      if (isPreCombat && context.multiplayerRole === 'guest') {
+        if (action.type === 'skip') {
+          await requestGuestMove?.({ type: 'pass' });
+          break;
+        }
+        if (action.type === 'move') {
+          const accepted = await requestGuestMove?.({ type: 'move', troopId: action.troop.id, to: action.target });
+          if (accepted) continue;
+          continue;
+        }
+      }
       if (action.type === 'dagger') {
         const didSacrifice = await performSacrifice(pi);
         if (didSacrifice) player.actionPoints--;
         updateHUD();
         continue;
       }
-      if (action.type === 'skip') break;
+      if (action.type === 'skip') {
+        if (isPreCombat) actionApplied?.({ type: 'pass' });
+        break;
+      }
       await executeMove(action.troop, getTile(action.target.q, action.target.r));
       player.actionPoints--;
       updateHUD();
+      if (isPreCombat) actionApplied?.({ type: 'move', troopId: action.troop.id, to: action.target });
     } else {
       await sleep(500);
       const decision = moveDecision(pi, isPreCombat);

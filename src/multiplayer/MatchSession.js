@@ -117,7 +117,9 @@ export class MatchSession {
     if (this.pendingRequest !== null || requestSeq !== this.nextRequestSeq) return false;
     this.pendingRequest = requestSeq;
     this.onStatus('Sending action to host…');
-    return this.sendTo(this.hostSeat, 'actionRequest', action);
+    const sent = this.sendTo(this.hostSeat, 'actionRequest', action);
+    if (!sent) this.pendingRequest = null;
+    return sent === true;
   }
 
   acceptHostUpdate(message, applySnapshot) {

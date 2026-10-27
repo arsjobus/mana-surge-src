@@ -39,6 +39,8 @@ const localActions = createLocalActionAdapter();
 --------------------------------------------------------------------- */
 let scene = null;
 let multiplayerSetup = null;
+let pendingGuestMoveResolve = null;
+let guestMovePhaseRunning = false;
 
 /* ---------------------------------------------------------------------
    Tile type descriptions
@@ -149,7 +151,24 @@ function applyHostSnapshot(snapshot){
   updateHUD();
   return true;
 }
-function ruleContext(){return {players:()=>gameState.players,troops:()=>gameState.troops,tiles:()=>gameState.tiles,countTiles,getTile,isLocked,getStats,isEmptyTile,neighbors,sleep,log,coloredName,cssColor,createTroop,destroyTroop,waitFor,validateIntent,updateHUD,document,hexSize:HEX_SIZE,axialToPixel:(q,r)=>axialToPixel(q,r,HEX_SIZE),boardX,boardY,burst,winScore:gameState.winScore,setGameOver:value=>{gameState.gameOver=value;},showVictory,weights:AIW,cpuChooseSpawnTile:(_pi,options)=>chooseCpuSpawnTile({getTile},options),waitForSpawn:chooseSpawnTileHuman,hasLegalMove,hasLegalAttack,daggerAvailable,gameOver:()=>gameState.gameOver,performSacrifice,executeMove,executeAttack,clearHighlights,setDecision:(seat,phase)=>{const session=gameState.session;if(!session)return;session.setDecision({seat,phase});if(session.role==='host')session.publishSnapshot(session.createSnapshot(gameState));},moveDecision:(pi,isPreCombat)=>CPU_MOVE_TREE({pi,isPreCombat}),combatDecision:pi=>CPU_COMBAT_TREE({pi})};}
+function requestGuestMove(action){
+  const session = gameState.session;
+  if (session?.role !== 'guest' || pendingGuestMoveResolve) return Promise.resolve(false);
+  return new Promise(resolve => {
+    pendingGuestMoveResolve = resolve;
+    if (!session.requestAction(action, session.nextRequestSeq)) {
+      pendingGuestMoveResolve = null;
+      resolve(false);
+    }
+  });
+}
+function startGuestMovePhase(){
+  const session = gameState.session;
+  if (session?.role !== 'guest' || session.phase !== 'move1' || session.activeSeat !== session.localSeat || guestMovePhaseRunning || gameState.gameOver) return;
+  guestMovePhaseRunning = true;
+  runMovePhase(ruleContext(), session.localSeat, true).catch(error => console.error('Guest move phase failed:', error)).finally(() => { guestMovePhaseRunning = false; });
+}
+function ruleContext(){return {players:()=>gameState.players,troops:()=>gameState.troops,tiles:()=>gameState.tiles,countTiles,getTile,isLocked,getStats,isEmptyTile,neighbors,sleep,log,coloredName,cssColor,createTroop,destroyTroop,waitFor,validateIntent,updateHUD,document,hexSize:HEX_SIZE,axialToPixel:(q,r)=>axialToPixel(q,r,HEX_SIZE),boardX,boardY,burst,winScore:gameState.winScore,setGameOver:value=>{gameState.gameOver=value;},showVictory,weights:AIW,cpuChooseSpawnTile:(_pi,options)=>chooseCpuSpawnTile({getTile},options),waitForSpawn:chooseSpawnTileHuman,hasLegalMove,hasLegalAttack,daggerAvailable,gameOver:()=>gameState.gameOver,performSacrifice,executeMove,executeAttack,clearHighlights,multiplayerRole:gameState.session?.role,requestGuestMove,actionApplied:action=>{const session=gameState.session;if(session?.role==='host')session.publishAccepted(action,{type:action.type},session.createSnapshot(gameState));},setDecision:(seat,phase)=>{const session=gameState.session;if(!session)return;session.setDecision({seat,phase});if(session.role==='host')session.publishSnapshot(session.createSnapshot(gameState));},moveDecision:(pi,isPreCombat)=>CPU_MOVE_TREE({pi,isPreCombat}),combatDecision:pi=>CPU_COMBAT_TREE({pi})};}
 function daggerAvailable(pi){return combatDaggerAvailable({countTiles,troops:()=>gameState.troops},pi);}
 function cpuShouldUseDagger(pi){return aiShouldUseDagger({players:gameState.players,troops:gameState.troops,weights:AIW()},pi);}
 
@@ -295,6 +314,27 @@ const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMa
       const local = role === 'host' ? hostSeat : localSeat;
       gameState.players = COLOR_META.map((c, i) => ({ ...c, human: role === 'host' ? roster[i]?.controller !== 'cpu' : i === local, mana: 0, actionPoints: 1 }));
       const coordinator = new SessionCoordinator({ role, matchId, localSeat: local, onMessage: ({ seat, message }) => {
+        if (message.type === 'actionRequest' && role === 'host' && gameState.session) {
+          const action = message.payload;
+          const pending = localActions.current();
+          const intent = action.type === 'move' && gameState.session.phase === 'move1'
+            ? { type: 'move', troopId: action.troopId, q: action.to.q, r: action.to.r }
+            : action.type === 'pass' && gameState.session.phase === 'move1' ? { type: 'skip' } : null;
+          const checked = intent && validateIntent(intent, 'move', seat);
+          const requestSeq = (gameState.session.lastRequestSeq.get(seat) || 0) + 1;
+          let rejection = null;
+          if (message.rateLimited) rejection = 'RATE_LIMITED';
+          else if (gameState.session.roster?.[seat]?.controller !== 'guest') rejection = 'NOT_YOUR_SEAT';
+          else if (gameState.session.activeSeat !== seat || pending?.playerIndex !== seat || pending?.kind !== 'move') rejection = 'NOT_YOUR_TURN';
+          else if (gameState.session.phase !== 'move1') rejection = 'WRONG_PHASE';
+          else if (!checked) rejection = 'ILLEGAL_ACTION';
+          if (rejection) coordinator.sendTo(seat, 'actionRejected', { requestSeq, code: rejection });
+          else {
+            const authorized = gameState.session.authorizeRequest(seat, action, requestSeq);
+            if (!authorized.ok) coordinator.sendTo(seat, 'actionRejected', { requestSeq, code: authorized.code });
+            else localActions.submit(intent);
+          }
+        }
         if (message.type === 'hello' && role === 'host' && gameState.session) {
           coordinator.sendTo(seat, 'seatAssignment', { seat, snapshot: gameState.session.createSnapshot(gameState, 'spawn') });
         }
@@ -307,6 +347,20 @@ const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMa
             ? gameState.session?.acceptSnapshot(message.payload, applyHostSnapshot)
             : gameState.session?.acceptHostUpdate(message.payload, applyHostSnapshot);
           if (!accepted) gameState.session?.onStatus('Host update was invalid or out of order. Waiting for a fresh snapshot.');
+          else if (message.type === 'actionAccepted' && pendingGuestMoveResolve) {
+            const resolve = pendingGuestMoveResolve;
+            pendingGuestMoveResolve = null;
+            resolve(true);
+          }
+          if (accepted) startGuestMovePhase();
+        }
+        if (message.type === 'actionRejected' && role === 'guest') {
+          if (!gameState.session) return;
+          gameState.session.pendingRequest = null;
+          const resolve = pendingGuestMoveResolve;
+          pendingGuestMoveResolve = null;
+          resolve?.(false);
+          gameState.session.onStatus(`Host rejected the move (${message.payload.code}).`);
         }
         if (message.type === 'disconnect') gameState.session?.peerDisconnected(seat);
       }, onPeerState: (seat, status) => {

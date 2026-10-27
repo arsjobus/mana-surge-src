@@ -71,6 +71,35 @@ describe('multiplayer protocol and host authorization', () => {
     expect(illegal).to.deep.include({ ok: false, code: 'ILLEGAL_ACTION' });
     expect(sent[sent.length - 1]).to.deep.equal([1, 'actionRejected', { requestSeq: 1, code: 'ILLEGAL_ACTION' }]);
   });
+
+  it('accepts an authorized Move Phase I request and gives the guest the host snapshot', () => {
+    const guestUpdates = [];
+    const snapshot = { activeSeat: 1, phase: 'move1', stateVersion: 0, board: 'before' };
+    const host = new MatchSession({
+      role: 'host', localSeat: 0, hostSeat: 0, matchId: 'match_identifier_1234',
+      roster: [{ seat: 0, controller: 'host' }, { seat: 1, controller: 'guest' }, { seat: 2, controller: 'cpu' }],
+      broadcast: (type, payload) => guestUpdates.push({ type, payload })
+    });
+    const guest = new MatchSession({
+      role: 'guest', localSeat: 1, hostSeat: 0, matchId: 'match_identifier_1234',
+      sendTo: (_seat, type, payload) => { guestUpdates.push({ type, payload }); return true; }
+    });
+    host.setDecision({ seat: 1, phase: 'move1' });
+    guest.acceptSnapshot({ stateVersion: 0, state: snapshot }, () => true);
+    const move = { type: 'move', troopId: 7, to: { q: 2, r: -1 } };
+    expect(guest.requestAction(move, guest.nextRequestSeq)).to.equal(true);
+    const result = host.handleActionRequest(1, move, 1, {
+      validate: (action, seat, phase) => seat === 1 && phase === 'move1' ? action : null,
+      apply: action => { snapshot.board = `moved:${action.troopId}`; return { type: 'move' }; },
+      createSnapshot: () => ({ ...snapshot })
+    });
+
+    expect(result.ok).to.equal(true);
+    expect(guest.acceptHostUpdate(result.update, state => { Object.assign(snapshot, state); return true; })).to.equal(true);
+    expect(snapshot.board).to.equal('moved:7');
+    expect(guest.stateVersion).to.equal(1);
+    expect(guestUpdates[0].type).to.equal('actionRequest');
+  });
 });
 
 describe('multiplayer session handshake', () => {
