@@ -51,10 +51,47 @@ Keep the static HTML, CSS, Phaser distribution, and music in their existing loca
 
 ### 1. Establish the boundaries
 
-- [ ] Record the current game behavior and identify every DOM element referenced by the script.
-- [ ] Group the existing functions and constants by the target modules above; note cross-module dependencies before moving code.
-- [ ] Decide which state fields belong in `GameState` (`tiles`, `troops`, players, current player, game-over status, settings, and pending human choice) and which are scene or view state.
-- [ ] Keep `src/main.js` as the stable entry point while extracting modules behind it.
+- [x] Record the current game behavior and identify every DOM element referenced by the script.
+- [x] Group the existing functions and constants by the target modules above; note cross-module dependencies before moving code.
+- [x] Decide which state fields belong in `GameState` (`tiles`, `troops`, players, current player, game-over status, settings, and pending human choice) and which are scene or view state.
+- [x] Keep `src/main.js` as the stable entry point while extracting modules behind it.
+
+#### Boundary inventory (current implementation)
+
+The current match starts only after the start-screen button boots Phaser. Each player's turn runs start, move I, combat, move II, and end phases; the loop advances among three seats until a player reaches the configured mana threshold. Humans choose a seat, CPU difficulty, and win score before starting. The rules include adjacent spawning and movement, simultaneous combat, shrine bonuses and locks, thorns, dagger sacrifice, and mana scoring. The UI also supports help, credits, mute, restart, and play again. The migration should preserve this flow and its current visuals and controls.
+
+DOM references in `src/main.js`:
+
+- Boot and setup: `game-container`, `ui-stage`, `hidden-start-overlay`, `.color-btn` (`data-color`), `.diff-btn` (`data-diff`), `winscore-slider`, `winscore-value`, `intro-winscore`, `start-btn`.
+- HUD and interaction: `mute-btn`, `tile-info`, `mana-panel`, `turn-text`, `turn-dot`, `ap-pips`, `phase-text`, `skip-btn`, `dagger-btn`, `restart-btn`.
+- Help and credits: `rules-btn`, `help-btn`, `help-modal`, `help-winscore`, `close-help`, `close-help-x`, `credits-btn`, `credits-modal`, `credits-list`, `close-credits`, `close-credits-x`.
+- Victory and replay: `victory-modal`, `victory-title`, `victory-text`, `playagain-btn`.
+- The script also creates mana rows and action-point pips dynamically, and uses `.modal-box` under each modal for scroll reset. `bg-vignette` is present in the HTML but is not referenced by the script.
+
+Function and constant ownership for extraction:
+
+- `data/`: `TILE_INFO`, `LOCKING_TYPES`, `WEIGHT_PRESETS`, `COLOR_META`, and `BOARD_DATA`.
+- `utils/hex.js`: `N`, `INNER_RADIUS`, `HEX_SIZE`, `DIRS`, `key`, `neighbors`, `hexDistance`, `axialToPixel`, `hexPolygonPoints`, cube/axial conversion and rotation helpers, and `shuffle`.
+- `utils/async.js`: `sleep` and `tweenPromise`.
+- `board/BoardModel.js`: tile/player access helpers (`getTile`, `isLocked`, `getStats`, `getTroopAt`, `isEmptyTile`, `countTiles`, `hasLegalMove`, `hasLegalAttack`), `buildBoard`, and initial troop placement.
+- `board/BoardRenderer.js`: SVG/texture generation (`svgUrl`, `loadSVGTexture`, `buildTextures`), board draw (`renderBoard`), and board presentation constants (`ICON_FOR_TYPE`, `BADGE_TYPES`, scales).
+- `entities/Troop.js`: `createTroop`, `destroyTroop`, `refreshLockVisual`, `burst`, and `moveSpritesTo`.
+- `systems/AudioSystem.js`: `loadBGM` and `startBGM`.
+- `ui/BoardInput.js`: highlight helpers, tile inspection, pending human choice (`waitFor`), click handlers, invalid-move feedback, and `setupTileInput`.
+- `ui/GameHUD.js`: `buildManaPanel`, `updateHUD`, `setPhaseUI`, and `log`; `cssColor` is a shared presentation helper.
+- `systems/SpawnSystem.js`: spawn portion of `startPhase`, `chooseSpawnTileHuman`, and `cpuChooseSpawnTile`.
+- `systems/CombatSystem.js`: dagger availability/decision, `performSacrifice`, combat resolution (`executeAttack`), and attack scoring/selection.
+- `systems/TurnSystem.js`: phase sequencing (`startPhase`, `movePhase`, `combatPhase`, `endPhase`), `executeMove`, `playTurn`, `gameLoop`, and victory determination/display trigger.
+- `ai/BehaviorTree.js`: `Selector`, `Sequence`, `Condition`, and `Action`.
+- `ai/CpuMoveAI.js`: move behavior tree/constants, progress/isolation helpers, `scoreMoveTarget`, and `cpuChooseMove`.
+- `ai/CpuCombatAI.js`: combat behavior tree/constants, `cpuChooseAttack`, and `cpuShouldUseDagger`.
+- `ui/ModalUI.js`: start-screen and button wiring, help and credits modal functions/data, victory presentation, and restart handlers.
+- `ui/UIStage.js`: `syncUIStage` and resize/observer wiring currently inside `boot`.
+- `config/gameConfig.js` and `src/main.js`: Phaser config/creation and the stable browser entry point, respectively; `MainScene` becomes `scenes/MainScene.js`.
+
+Cross-module dependencies to watch: board queries are used by rendering, input, rules, and AI; troop operations need both `GameState` and scene visuals; turn/combat/spawn systems call UI and animation helpers; AI decisions consume board/player state and difficulty weights but should not receive Phaser sprites or DOM nodes. Resolve these through explicit parameters/callbacks and keep view objects out of `GameState`.
+
+`GameState` should own mutable match data: `tiles`, `troops`, `nextTroopId`, `players`, `currentPlayerIndex`, `gameOver`, settings (`difficulty`, `winScore`, `humanColorIndex`), and the pending human choice (`pending`). Keep the Phaser `scene`, `bgmSound`, `phaserGame`, board pixel origin, highlight sprites, and selection sprite in scene/view or system instances. `WEIGHT_PRESETS`, board/tile definitions, and color metadata remain immutable data rather than mutable match state.
 
 ### 2. Extract pure data and utilities
 
