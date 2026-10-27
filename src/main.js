@@ -1,4 +1,7 @@
 import { GameState } from './state/GameState.js';
+import { Selector, Sequence, Condition, Action } from './ai/BehaviorTree.js';
+import { cpuChooseMove } from './ai/CpuMoveAI.js';
+import { cpuChooseAttack, cpuShouldUseDagger as aiShouldUseDagger } from './ai/CpuCombatAI.js';
 /* ======================================================================
    MANA SURGE — single-file Phaser 3 implementation
    ====================================================================== */
@@ -11,7 +14,7 @@ import { WEIGHT_PRESETS } from './data/aiWeights.js';
 import * as BoardModel from './board/BoardModel.js';
 import { buildTextures, renderBoard as drawBoard } from './board/BoardRenderer.js';
 import { TOKEN_SCALE, createTroop as createTroopView, destroyTroop as destroyTroopView, refreshLockVisual as refreshTroopLockVisual, burst as troopBurst, moveSpritesTo as moveTroopSprites } from './entities/Troop.js';
-import { daggerAvailable as combatDaggerAvailable, cpuShouldUseDagger as combatCpuShouldUseDagger, performSacrifice as resolveSacrifice, executeAttack as resolveAttack } from './systems/CombatSystem.js';
+import { daggerAvailable as combatDaggerAvailable, performSacrifice as resolveSacrifice, executeAttack as resolveAttack } from './systems/CombatSystem.js';
 import { startPhase as runStartPhase, chooseCpuSpawnTile } from './systems/SpawnSystem.js';
 import { playTurn as runTurn, gameLoop as runGameLoop, endPhase as runEndPhase, executeMove as runExecuteMove, movePhase as runMovePhase, combatPhase as runCombatPhase } from './systems/TurnSystem.js';
 
@@ -235,7 +238,7 @@ function daggerAvailable(pi){
 // move, not an early priority: only reach for it once it has a healthy troop
 // surplus to spare, or as a genuine closing push when already near victory.
 function cpuShouldUseDagger(pi){
-  return combatCpuShouldUseDagger({players:()=>gameState.players,troops:()=>gameState.troops,weights:AIW},pi);
+  return aiShouldUseDagger({players:gameState.players,troops:gameState.troops,weights:AIW()},pi);
 }
 
 function onTroopClicked(troop){
@@ -378,68 +381,16 @@ async function performSacrifice(pi){
   return resolveSacrifice(ruleContext(),pi);
 }
 
-/* ---------------------------------------------------------------------
-   Behavior Tree framework for CPU gameState.players
-   ---------------------------------------------------------------------
-   Phaser has no built-in behavior-tree system (checked: nothing in core
-   or the official plugin set does this), so this is a small real one,
-   built from scratch instead of pulling in a third-party dependency for
-   a single-file game with just three fairly small trees:
-     - Selector : tries children in priority order, returns the first
-                  success (a truthy result). This IS the priority list.
-     - Sequence : every child must succeed, in order; returns the last
-                  child's result. Used as an implicit "if / then".
-     - Condition: a leaf that succeeds (returns true) if a predicate
-                  holds, otherwise fails (returns null).
-     - Action   : a leaf that always "succeeds", performing a lookup or
-                  producing the final decision object for the tick.
-   Every node is just a function bb => result, where bb ("blackboard")
-   carries whatever context the tree needs (here: {pi, isPreCombat}).
-   A falsy result means failure and makes the parent Selector move on
-   to the next child / the parent Sequence abort.
---------------------------------------------------------------------- */
-function Selector(...children){
-  return function(bb){
-    for(const child of children){
-      const result = child(bb);
-      if(result) return result;
-    }
-    return null;
-  };
-}
-function Sequence(...children){
-  return function(bb){
-    let result = null;
-    for(const child of children){
-      result = child(bb);
-      if(!result) return null;
-    }
-    return result;
-  };
-}
-function Condition(pred){ return function(bb){ return pred(bb) ? true : null; }; }
-function Action(fn){ return function(bb){ return fn(bb); }; }
-
-// --- Move-phase tree ----------------------------------------------------
-// Priority order, top to bottom:
-//   1. Hold position if we're down to our last action point and a good
-//      attack is already available -- bank the point for Combat instead
-//      of wasting it on a lesser move.
-//   2. Otherwise take the best available move.
-//   3. No good move -- consider the Sacrificial Dagger (late game only).
-//   4. Nothing productive to do: pass.
-// Tiles rare/unique enough that passing one up this turn could mean losing
-// it to another player -- these are the only prizes worth interrupting a
-// "hold for attack" over. Ordinary combat shrines (atk/def) are common
-// enough (18/18/15 of them) that grabbing a marginally-better one is never
-// worth giving up a queued attack for.
+const aiContext = () => ({ state: gameState, weights: AIW(), getTile, getTroopAt, getStats, isLocked, isEmptyTile });
+const chooseMove = (pi) => cpuChooseMove(aiContext(), pi);
+const chooseAttack = (pi) => cpuChooseAttack(aiContext(), pi);
 const UNMISSABLE_CLAIM_TYPES = ['mana_pool','extra_action','extra_spawn','dagger'];
 const CPU_MOVE_TREE = Selector(
   Sequence(
     Condition(bb => bb.isPreCombat && gameState.players[bb.pi].actionPoints <= 1),
-    Condition(bb => { bb.pendingAttack = cpuChooseAttack(bb.pi); return !!bb.pendingAttack; }),
+    Condition(bb => { bb.pendingAttack = chooseAttack(bb.pi); return !!bb.pendingAttack; }),
     Condition(bb => {
-      bb.bestMove = cpuChooseMove(bb.pi);
+      bb.bestMove = chooseMove(bb.pi);
       if(!bb.bestMove) return true;
       const targetType = getTile(bb.bestMove.target.q, bb.bestMove.target.r).type;
       return !UNMISSABLE_CLAIM_TYPES.includes(targetType);
@@ -447,30 +398,16 @@ const CPU_MOVE_TREE = Selector(
     Action(() => ({type:'hold'}))
   ),
   Sequence(
-    Condition(bb => { bb.bestMove = bb.bestMove || cpuChooseMove(bb.pi); return !!bb.bestMove; }),
+    Condition(bb => { bb.bestMove = bb.bestMove || chooseMove(bb.pi); return !!bb.bestMove; }),
     Action(bb => ({type:'move', troop:bb.bestMove.troop, target:bb.bestMove.target}))
   ),
-  Sequence(
-    Condition(bb => daggerAvailable(bb.pi)),
-    Condition(bb => cpuShouldUseDagger(bb.pi)),
-    Action(() => ({type:'sacrifice'}))
-  ),
+  Sequence(Condition(bb => daggerAvailable(bb.pi)), Condition(bb => cpuShouldUseDagger(bb.pi)), Action(() => ({type:'sacrifice'}))),
   Action(() => ({type:'pass'}))
 );
-
-// --- Combat-phase tree ---------------------------------------------------
-// Priority order: take the best attack; otherwise consider the dagger;
-// otherwise pass.
 const CPU_COMBAT_TREE = Selector(
-  Sequence(
-    Condition(bb => { bb.bestAttack = cpuChooseAttack(bb.pi); return !!bb.bestAttack; }),
-    Action(bb => ({type:'attack', attacker:bb.bestAttack.attacker, defender:bb.bestAttack.defender}))
-  ),
-  Sequence(
-    Condition(bb => daggerAvailable(bb.pi)),
-    Condition(bb => cpuShouldUseDagger(bb.pi)),
-    Action(() => ({type:'sacrifice'}))
-  ),
+  Sequence(Condition(bb => { bb.bestAttack = chooseAttack(bb.pi); return !!bb.bestAttack; }),
+    Action(bb => ({type:'attack', attacker:bb.bestAttack.attacker, defender:bb.bestAttack.defender}))),
+  Sequence(Condition(bb => daggerAvailable(bb.pi)), Condition(bb => cpuShouldUseDagger(bb.pi)), Action(() => ({type:'sacrifice'}))),
   Action(() => ({type:'pass'}))
 );
 
@@ -492,164 +429,6 @@ async function executeAttack(attacker, defender){
 
 function coloredName(pi){
   return `<span style="color:${cssColor(playerColorHex(pi))}">${playerName(pi)}</span>`;
-}
-
-/* ---------------------------------------------------------------------
-   CPU AI heuristics
---------------------------------------------------------------------- */
-function isIsolated(troop){
-  return !neighbors(troop.q,troop.r).some(n=>{
-    const t = getTroopAt(n.q,n.r);
-    return t && t.owner===troop.owner;
-  });
-}
-function gameProgress(){
-  // 0 = fresh game, 1 = someone is one mana point from winning. Used to
-  // fade out "build my economy" behavior in favor of "close the game out".
-  const leaderMana = Math.max(...gameState.players.map(p=>p.mana));
-  return Math.max(0, Math.min(1, leaderMana/gameState.winScore));
-}
-function scoreMoveTarget(troop, target, pi, myLockedAllies){
-  const w = AIW();
-  const tile = getTile(target.q, target.r);
-  let score=0;
-  const curDist = hexDistance(troop, {q:0,r:0});
-  const newDist = hexDistance(target, {q:0,r:0});
-  score += (curDist-newDist)*w.centerPull;
-  const economyFactor = 1 - gameProgress()*w.economyDecay;
-  if(tile.type==='mana_pool') score += w.manaPool;
-  if(tile.type==='extra_action') score += w.extraAction * economyFactor;
-  if(tile.type==='extra_spawn') score += w.extraSpawn * economyFactor;
-  if(tile.type==='dagger') score += w.dagger;
-  if(tile.type==='atk_plus') score += w.atkPlus;
-  if(tile.type==='def_plus') score += w.defPlus;
-  if(tile.type==='atk_minus') score += w.atkMinus;
-  if(tile.type==='thorns') score += w.thorns;
-  // Baseline aggression: drift toward the human player's nearest troop even
-  // when nothing else is happening, so CPUs actively hunt rather than idle
-  // near their own shrines. Weighted below the center-pull and shrine bonuses
-  // above, so it only breaks ties / fills in when there's no bigger prize.
-  const humanTroops = gameState.troops.filter(t=>gameState.players[t.owner].human);
-  if(humanTroops.length){
-    const curHDist = Math.min(...humanTroops.map(h=>hexDistance(troop,h)));
-    const newHDist = Math.min(...humanTroops.map(h=>hexDistance(target,h)));
-    score += (curHDist-newHDist)*w.huntNearestEnemy;
-  }
-  const hypDef = 1 + (tile.type==='def_plus'?1:0);
-  neighbors(target.q,target.r).forEach(nb=>{
-    const e = getTroopAt(nb.q,nb.r);
-    if(e && e.owner!==pi){
-      const es = getStats(e);
-      const et = getTile(e.q,e.r);
-      const enemyIsHighValue = et.type==='mana_pool' || LOCKING_TYPES.includes(et.type);
-      if(enemyIsHighValue){
-        // Getting adjacent sets up a mana/shrine-denying attack next combat phase --
-        // this is a good thing to do, not a risk to avoid.
-        score += w.setupHighValueAttack;
-      } else if(es.atk >= hypDef){
-        score += w.genericRisk; // generic risk of a pointless trade elsewhere on the board
-      }
-    }
-  });
-  // Extra urgency to converge on a contested Mana Pool: prioritize landing
-  // directly adjacent to it so the following Combat phase can contest it.
-  // Only rewards actually gaining adjacency this move -- a troop that is
-  // already adjacent and shuffling sideways to a different ring tile should
-  // NOT keep re-earning this bonus, or it'll wander instead of attacking.
-  const manaTile = getTile(0,0);
-  if(manaTile.occupantId!=null){
-    const occ = gameState.troops.find(t=>t.id===manaTile.occupantId);
-    const wasAdjacent = hexDistance(troop,{q:0,r:0})===1;
-    const willBeAdjacent = hexDistance(target,{q:0,r:0})===1;
-    if(occ && occ.owner!==pi && willBeAdjacent && !wasAdjacent){
-      score += w.manaAdjacencyRush;
-    }
-  }
-  // Garrison a locked economy/mana troop of mine that nobody's guarding yet,
-  // instead of leaving it standing alone as a free kill for an opponent.
-  if(myLockedAllies && myLockedAllies.length){
-    myLockedAllies.forEach(lockedAlly=>{
-      if(lockedAlly.id===troop.id) return;
-      const distNow = hexDistance(troop, lockedAlly);
-      const distAfter = hexDistance(target, lockedAlly);
-      if(distAfter===1 && distNow!==1){
-        const alreadyGuarded = neighbors(lockedAlly.q,lockedAlly.r).some(n=>{
-          const t2 = getTroopAt(n.q,n.r);
-          return t2 && t2.owner===pi && t2.id!==troop.id;
-        });
-        if(!alreadyGuarded) score += w.reinforceBonus;
-      }
-    });
-  }
-  return score;
-}
-function cpuChooseMove(pi){
-  let best=null, bestScore=2; // threshold: don't move without benefit
-  const candidates = [];
-  const myLockedAllies = gameState.troops.filter(t=>t.owner===pi && LOCKING_TYPES.includes(getTile(t.q,t.r).type));
-  gameState.troops.filter(t=>t.owner===pi && !isLocked(t)).forEach(troop=>{
-    neighbors(troop.q,troop.r).filter(n=>gameState.tiles.has(key(n.q,n.r)) && isEmptyTile(n)).forEach(target=>{
-      const s = scoreMoveTarget(troop, target, pi, myLockedAllies);
-      candidates.push({troop,target,score:s});
-      if(s>bestScore){ bestScore=s; best={troop,target,score:s}; }
-    });
-  });
-  if(candidates.length===0) return null;
-  // Difficulty: a chance to pick a random legal move instead of the best one.
-  if(Math.random() < AIW().mistakeChance){
-    return candidates[Math.floor(Math.random()*candidates.length)];
-  }
-  return best;
-}
-function cpuChooseAttack(pi){
-  const w = AIW();
-  let best=null, bestScore=0;
-  const candidates = [];
-  // "The leader" is whoever has the most mana right now -- usually the
-  // human, but not always, since the two CPUs are independent rivals too.
-  // Pressuring whoever's actually closest to winning (instead of always
-  // fixating on the human) means the CPUs back off a struggling human and
-  // lean harder on anyone, human or CPU, who's about to close the game out.
-  const leader = gameState.players.reduce((a,_,i)=> gameState.players[i].mana>gameState.players[a].mana ? i : a, 0);
-  const leaderMargin = gameState.players[leader].mana / gameState.winScore;
-  const myLockedTroops = gameState.troops.filter(t=>t.owner===pi && LOCKING_TYPES.includes(getTile(t.q,t.r).type));
-  gameState.troops.filter(t=>t.owner===pi && !isLocked(t)).forEach(troop=>{
-    const aS = getStats(troop);
-    neighbors(troop.q,troop.r).forEach(nb=>{
-      const enemy = getTroopAt(nb.q,nb.r);
-      if(enemy && enemy.owner!==pi){
-        const dS = getStats(enemy);
-        const iKill = aS.atk >= dS.def;
-        const iDie = dS.atk >= aS.def;
-        const et = getTile(enemy.q,enemy.r);
-        const highValue = et.type==='mana_pool' ? w.highValueMana : LOCKING_TYPES.includes(et.type) ? w.highValueLocking : 0;
-        // Both CPUs like picking off targets that have no ally backing them
-        // up, lean harder on whoever's in the lead, and treat an enemy
-        // threatening a shrine I already hold as worth acting on even when
-        // the trade itself looks marginal.
-        const isolatedBonus = isIsolated(enemy) ? w.isolatedBonus : 0;
-        const isLeader = enemy.owner===leader;
-        const leaderBonus = isLeader ? w.pressureLeader*(1 + w.pressureMarginScale*leaderMargin) : 0;
-        const threatensMyLocked = myLockedTroops.some(lt=>
-          neighbors(lt.q,lt.r).some(n=>n.q===enemy.q && n.r===enemy.r));
-        const defendBonus = threatensMyLocked ? w.defendLockedBonus : 0;
-        const pressureBonus = leaderBonus + isolatedBonus + defendBonus;
-        let score;
-        if(iKill && !iDie) score = w.freeKillBase + highValue + pressureBonus;  // free kill, always take it
-        else if(iKill && iDie) score = w.mutualTradeBase + highValue + pressureBonus; // mutual trade — worth it to deny value gameState.tiles / pressure the leader
-        else if(!iKill && !iDie) score = w.pointlessBump + defendBonus*0.5;         // pointless bump, unless it still chases off a shrine threat
-        else score = w.loseForNothingBase + highValue*w.loseForNothingHighValueMult + pressureBonus*w.loseForNothingPressureMult; // I'd die for nothing, unless it's very high value
-        candidates.push({attacker:troop, defender:enemy, score});
-        if(score>bestScore){ bestScore=score; best={attacker:troop, defender:enemy, score}; }
-      }
-    });
-  });
-  if(candidates.length===0) return null;
-  // Difficulty: a chance to pick a random legal attack instead of the best one.
-  if(Math.random() < w.mistakeChance){
-    return candidates[Math.floor(Math.random()*candidates.length)];
-  }
-  return best;
 }
 
 /* ---------------------------------------------------------------------

@@ -118,10 +118,10 @@ Cross-module dependencies to watch: board queries are used by rendering, input, 
 
 ### 5. Extract CPU behavior
 
-- [ ] Move behavior-tree combinators into `ai/BehaviorTree.js`.
-- [ ] Move move scoring and move selection into `ai/CpuMoveAI.js`.
-- [ ] Move attack scoring, attack selection, and dagger decisions into `ai/CpuCombatAI.js`.
-- [ ] Pass state and difficulty weights to AI functions explicitly so AI decisions can be reasoned about independently of Phaser sprites and DOM elements.
+- [x] Move behavior-tree combinators into `ai/BehaviorTree.js`.
+- [x] Move move scoring and move selection into `ai/CpuMoveAI.js`.
+- [x] Move attack scoring, attack selection, and dagger decisions into `ai/CpuCombatAI.js`.
+- [x] Pass state and difficulty weights to AI functions explicitly so AI decisions can be reasoned about independently of Phaser sprites and DOM elements.
 
 ### 6. Extract user interface and scene orchestration
 
