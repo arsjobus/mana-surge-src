@@ -61,8 +61,38 @@
       <div id="difficulty-label">Victory Threshold: <span id="winscore-value">10</span> Mana</div>
       <input type="range" id="winscore-slider" min="10" max="50" step="10" value="10">
       <button class="game-btn primary" id="start-btn">Begin the Surge</button>
+      <button class="game-btn" id="multiplayer-btn">Play Multiplayer</button>
       <button class="game-btn" id="rules-btn">How to Play</button>
       <button class="game-btn" id="credits-btn">Credits</button>
+    </div>
+
+    <div class="modal-overlay" id="multiplayer-modal" style="display:none;">
+      <div class="modal-shell"><div class="modal-box lobby-box">
+        <button class="modal-close-x" id="lobby-close" aria-label="Close">&times;</button>
+        <h2>Private Multiplayer</h2>
+        <p>Connection codes grant access to a seat. Share them only with players you intend to invite. Codes are exchanged manually; direct connections may fail on some networks without a TURN relay.</p>
+        <div class="lobby-columns">
+          <section><h3>Host a match</h3>
+            <label>Host seat</label><div class="lobby-row">
+              <button class="pill-btn host-seat-btn selected" data-seat="0">Red</button><button class="pill-btn host-seat-btn" data-seat="1">Blue</button><button class="pill-btn host-seat-btn" data-seat="2">Green</button>
+            </div>
+            <label>Other seats</label>
+            <select class="seat-mode" data-seat="0" disabled><option>Host</option></select>
+            <select class="seat-mode" data-seat="1"><option value="cpu">CPU</option><option value="guest">Open to guest</option></select>
+            <select class="seat-mode" data-seat="2"><option value="cpu">CPU</option><option value="guest">Open to guest</option></select>
+            <label for="invite-seat">Invite seat</label><select id="invite-seat"></select>
+            <button class="game-btn" id="host-create-btn">Create invite</button>
+            <label for="host-answer">Guest answer code</label><textarea id="host-answer" rows="3" maxlength="100000"></textarea><button class="game-btn" id="host-answer-btn">Apply answer</button>
+            <button class="game-btn primary" id="lobby-start-match">Start match</button>
+          </section>
+          <section><h3>Join a match</h3><label for="guest-offer">Host invite code</label><textarea id="guest-offer" rows="5" maxlength="100000"></textarea>
+            <button class="game-btn" id="guest-prepare-btn">Prepare answer</button><button class="game-btn" id="guest-seat-confirm">Confirm seat</button><button class="game-btn primary" id="guest-join-btn">Join match</button>
+          </section>
+        </div>
+        <div id="lobby-status" role="status" aria-live="polite">Choose host or guest to begin.</div>
+        <div id="lobby-code-result" hidden><b id="lobby-code-title"></b><textarea id="lobby-code-output" rows="4" readonly></textarea><button class="game-btn" id="lobby-copy-btn">Copy code</button></div>
+        <div class="btn-row"><button class="game-btn" id="lobby-cancel">Cancel lobby</button></div>
+      </div></div>
     </div>
 
     <div class="modal-overlay" id="help-modal" style="display:none;">

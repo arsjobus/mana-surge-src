@@ -74,6 +74,8 @@ Implementation: `MessageCodec.js` validates v1 envelopes and action payloads wit
 - [ ] Support cancellation, invalid/expired code feedback, duplicate seat rejection, browser refresh/leave behavior, and a clear start-match action once the host is ready.
 - [ ] Make clear in the UI that invite codes grant access to a seat and should only be shared with intended players.
 
+Progress: `src/multiplayer/LobbyUI.js` adds the host/guest lobby, seat and CPU/open-seat controls, per-open-seat offer generation, answer import, guest seat confirmation, cancellation, connection feedback, and copy/paste codes. The lobby keeps match signaling in memory and closes peers when cancelled or closed. The Start/Join controls currently stop at a lobby-ready handoff; authoritative match startup is the next section. Manual browser-to-browser validation remains outstanding.
+
 ### 5. Integrate host-authoritative match flow
 
 - [ ] Add a multiplayer session mode to `GameState` or a distinct session model without coupling it to WebRTC internals.

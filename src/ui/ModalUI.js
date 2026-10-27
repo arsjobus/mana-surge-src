@@ -1,10 +1,11 @@
 const CREDITS=[{role:'Design, Code & Art',name:'Alexander Shepherd'}];
 
-export function setupModalUI({state,onStart}) {
+export function setupModalUI({state,onStart,onMultiplayer=()=>{}}) {
   document.querySelectorAll('.color-btn').forEach(btn=>btn.addEventListener('click',()=>{state.humanColorIndex=parseInt(btn.dataset.color,10);document.querySelectorAll('.color-btn').forEach(b=>b.classList.toggle('selected',b===btn));}));
   document.querySelectorAll('.diff-btn').forEach(btn=>btn.addEventListener('click',()=>{state.difficulty=btn.dataset.diff;document.querySelectorAll('.diff-btn').forEach(b=>b.classList.toggle('selected',b===btn));}));
   document.getElementById('winscore-slider').addEventListener('input',e=>{state.winScore=parseInt(e.target.value,10);document.getElementById('winscore-value').textContent=state.winScore;document.getElementById('intro-winscore').textContent=state.winScore;document.getElementById('help-winscore').textContent=state.winScore;});
   document.getElementById('start-btn').addEventListener('click',()=>{document.getElementById('hidden-start-overlay').style.display='none';onStart();});
+  document.getElementById('multiplayer-btn').addEventListener('click',onMultiplayer);
   const openHelp=()=>{const modal=document.getElementById('help-modal');modal.style.display='flex';modal.querySelector('.modal-box').scrollTop=0;document.getElementById('help-winscore').textContent=state.winScore;};
   document.getElementById('rules-btn').addEventListener('click',openHelp);document.getElementById('help-btn').addEventListener('click',openHelp);
   ['close-help','close-help-x'].forEach(id=>document.getElementById(id).addEventListener('click',()=>{document.getElementById('help-modal').style.display='none';}));
