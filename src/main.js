@@ -8,7 +8,8 @@ import { sleep, tweenPromise } from './utils/async.js';
 import { TILE_INFO, LOCKING_TYPES, COLOR_META } from './data/gameData.js';
 import { WEIGHT_PRESETS } from './data/aiWeights.js';
 import * as BoardModel from './board/BoardModel.js';
-import { buildTextures, renderBoard as drawBoard, TOKEN_SCALE } from './board/BoardRenderer.js';
+import { buildTextures, renderBoard as drawBoard } from './board/BoardRenderer.js';
+import { TOKEN_SCALE, createTroop as createTroopView, destroyTroop as destroyTroopView, refreshLockVisual as refreshTroopLockVisual, burst as troopBurst, moveSpritesTo as moveTroopSprites } from './entities/Troop.js';
 
 
 /* ---------------------------------------------------------------------
@@ -87,6 +88,15 @@ function hasLegalAttack(pi){ return BoardModel.hasLegalAttack(tiles,troops,pi); 
 // for all three players -- not randomly generated.
 function buildBoard(){ tiles = BoardModel.buildBoard(players); }
 
+function troopContext(){
+  return {
+    scene, tiles, troops, nextId:()=>nextTroopId++, boardOrigin:{x:boardCX,y:boardCY},
+    playerColor:playerColorHex, getStats, isLocked,
+    onClick:onTroopClicked, onHover:showTileInfo,
+    burst:(x,y,color,count)=>troopBurst(scene,x,y,color,count)
+  };
+}
+function createTroop(owner,q,r,animate){ return createTroopView(troopContext(),owner,q,r,animate); }
 function setupInitialTroops(){ BoardModel.setupInitialTroops(players,tiles,createTroop); }
 
 /* ---------------------------------------------------------------------
@@ -147,68 +157,10 @@ function startBGM(scene, sound){
 --------------------------------------------------------------------- */
 
 
-function createTroop(owner, q, r, animate){
-  const t = getTile(q,r);
-  const troop = {id: nextTroopId++, owner, q, r};
-  t.occupantId = troop.id;
-  const px = axialToPixel(q,r,HEX_SIZE);
-  const x = boardX(px.x), y = boardY(px.y);
-
-  const glow = scene.add.image(x,y,'particleGlow').setScale(1.5).setAlpha(0.5).setTint(playerColorHex(owner)).setDepth(3).setBlendMode('ADD');
-  const sprite = scene.add.image(x,y,'tokenBadge').setScale(animate?0:TOKEN_SCALE).setTint(playerColorHex(owner)).setDepth(4).setInteractive({useHandCursor:true});
-  const lock = scene.add.image(x,y,'lockRing').setScale(TOKEN_SCALE*1.05).setAlpha(0).setDepth(5).setTint(0xffd76a);
-  const sel = scene.add.image(x,y,'selRing').setScale(TOKEN_SCALE*1.15).setAlpha(0).setDepth(5).setTint(0xffffff);
-  const statText = scene.add.text(x,y,'1/1', {
-    fontFamily:'Georgia, serif', fontSize: Math.round(HEX_SIZE*0.42)+'px', fontStyle:'bold', color:'#ffffff',
-    stroke:'#000000', strokeThickness:3
-  }).setOrigin(0.5).setDepth(5);
-
-  troop.sprite = sprite; troop.glow = glow; troop.lockSprite = lock; troop.selSprite = sel; troop.statText = statText;
-  sprite.on('pointerdown', ()=>onTroopClicked(troop));
-  sprite.on('pointerover', ()=>{ showTileInfo(t, troop); });
-  troops.push(troop);
-  refreshLockVisual(troop);
-
-  if(animate){
-    scene.tweens.add({targets:sprite, scale:TOKEN_SCALE, duration:280, ease:'Back.easeOut'});
-    burst(x,y,playerColorHex(owner),14);
-  }
-  return troop;
-}
-
-async function destroyTroop(troop, isThorns){
-  const idx = troops.indexOf(troop);
-  if(idx>=0) troops.splice(idx,1);
-  const t = getTile(troop.q,troop.r);
-  if(t && t.occupantId===troop.id) t.occupantId=null;
-  burst(troop.sprite.x, troop.sprite.y, isThorns?0xff4444:playerColorHex(troop.owner), 22);
-  scene.cameras.main.shake(120, 0.0025);
-  await tweenPromise(scene, [troop.sprite, troop.glow, troop.lockSprite, troop.selSprite, troop.statText], {scale:0, alpha:0}, 260, 'Back.easeIn');
-  troop.sprite.destroy(); troop.glow.destroy(); troop.lockSprite.destroy(); troop.selSprite.destroy(); troop.statText.destroy();
-}
-
-function refreshLockVisual(troop){
-  const locked = isLocked(troop);
-  troop.lockSprite.setAlpha(locked?0.85:0);
-  if(locked && !troop._lockTween){
-    troop._lockTween = scene.tweens.add({targets:troop.lockSprite, angle:360, duration:5000, repeat:-1});
-  }
-  const st = getStats(troop);
-  troop.statText.setText(`${st.atk}/${st.def}`);
-}
-
-function burst(x,y,color,count){
-  const em = scene.add.particles(x,y,'particleSpark',{
-    speed:{min:60,max:220}, angle:{min:0,max:360}, lifespan:{min:350,max:650},
-    scale:{start:0.9,end:0}, alpha:{start:1,end:0}, tint:color, blendMode:'ADD'
-  }).setDepth(6);
-  em.explode(count||16);
-  scene.time.delayedCall(750, ()=>em.destroy());
-}
-
-function moveSpritesTo(troop, x, y){
-  return tweenPromise(scene, [troop.sprite, troop.glow, troop.lockSprite, troop.selSprite, troop.statText], {x,y}, 260);
-}
+async function destroyTroop(troop, isThorns){ return destroyTroopView(troopContext(),troop,isThorns); }
+function refreshLockVisual(troop){ refreshTroopLockVisual(troopContext(),troop); }
+function burst(x,y,color,count){ troopBurst(scene,x,y,color,count); }
+function moveSpritesTo(troop,x,y){ return moveTroopSprites(scene,troop,x,y); }
 
 /* ---------------------------------------------------------------------
    Highlighting & tile info
