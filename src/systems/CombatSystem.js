@@ -39,9 +39,15 @@ export async function performSacrifice(context, pi) {
     log(`${coloredName(pi)} channels the Sacrificial Dagger — choose 3 troops to sacrifice.`);
     const intent = await waitFor('sacrifice', pi);
     button.disabled = true;
-    if (intent?.type === 'cancel') return false;
+    if (intent?.type === 'cancel') {
+      if (context.multiplayerRole === 'guest') await context.requestGuestSacrificeCancel?.();
+      return false;
+    }
     const action = validateIntent(intent, 'sacrifice', pi);
     if (!action) return false;
+    if (context.multiplayerRole === 'guest') {
+      return await context.requestGuestSacrifice?.(action.troops.map(troop => troop.id)) === true;
+    }
     for (const troop of action.troops) await destroyTroop(troop, false);
   } else {
     const picks = [...troops()].filter((troop) => troop.owner === pi).sort((a, b) => {

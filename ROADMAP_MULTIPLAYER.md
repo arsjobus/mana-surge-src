@@ -103,6 +103,8 @@ The guest host-disconnect path is now connected to a match-ended modal: it stops
 
 **Turn integration slice completed: guest combat attacks and passes.** During a guest-owned Combat Phase, the host now accepts only attack or pass intents while its turn loop is waiting for that seat, validates the attacker and defender against the authoritative board, and lets the existing host combat resolver determine simultaneous casualties. Accepted attacks and passes publish ordered host snapshots; the guest starts its combat input loop only after an authoritative snapshot marks its seat active. Focused Cypress coverage verifies the authorized combat request and host-resolved event/snapshot synchronization. Dagger/sacrifice actions, CPU action publication, guest disconnect recovery, and complete match progression remain outstanding; the next slice is dagger/sacrifice.
 
+**Turn integration slice completed: guest dagger/sacrifice actions.** Guests can select three owned troops and submit the atomic sacrifice intent while the host is waiting at that guest's sacrifice choice. The host validates the IDs and dagger availability, applies troop removal, mana, and the action-point cost through the existing turn loop, then publishes the accepted snapshot. Cancelling the selection is also relayed so both host and guest resume their turn loops. CPU sacrifices and local host sacrifices now publish accepted updates as well. CPU action publication beyond sacrifices, guest disconnect recovery, and complete match progression remain outstanding.
+
 ### 6. Build coverage and perform manual verification
 
 - [x] Add unit or browser tests for protocol validation, host action authorization, sequence handling, and guest rejection paths.

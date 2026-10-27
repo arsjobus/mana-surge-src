@@ -73,7 +73,8 @@ export async function movePhase(context, pi, isPreCombat) {
       }
       if (action.type === 'dagger') {
         const didSacrifice = await performSacrifice(pi);
-        if (didSacrifice) player.actionPoints--;
+        if (context.multiplayerRole === 'guest') continue;
+        if (didSacrifice) { player.actionPoints--; actionApplied?.({ type: 'sacrifice' }); }
         updateHUD();
         continue;
       }
@@ -95,7 +96,7 @@ export async function movePhase(context, pi, isPreCombat) {
         await sleep(250);
       } else if (decision.type === 'sacrifice') {
         const didSacrifice = await performSacrifice(pi);
-        if (didSacrifice) player.actionPoints--;
+        if (didSacrifice) { player.actionPoints--; actionApplied?.({ type: 'sacrifice' }); }
         updateHUD();
         await sleep(250);
       } else break;
@@ -140,7 +141,8 @@ export async function combatPhase(context, pi) {
       }
       if (action.type === 'dagger') {
         const didSacrifice = await performSacrifice(pi);
-        if (didSacrifice) player.actionPoints--;
+        if (multiplayerRole === 'guest') continue;
+        if (didSacrifice) { player.actionPoints--; actionApplied?.({ type: 'sacrifice' }); }
         updateHUD();
         continue;
       }
@@ -159,7 +161,7 @@ export async function combatPhase(context, pi) {
         await sleep(300);
       } else if (decision.type === 'sacrifice') {
         const didSacrifice = await performSacrifice(pi);
-        if (didSacrifice) player.actionPoints--;
+        if (didSacrifice) { player.actionPoints--; actionApplied?.({ type: 'sacrifice' }); }
         updateHUD();
         await sleep(300);
       } else break;

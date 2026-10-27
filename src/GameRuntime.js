@@ -165,6 +165,8 @@ function requestGuestMove(action){
   });
 }
 function requestGuestCombat(action){ return requestGuestMove(action); }
+function requestGuestSacrifice(troopIds){ return requestGuestMove({ type: 'sacrifice', troopIds }); }
+function requestGuestSacrificeCancel(){ return requestGuestMove({ type: 'cancelSacrifice' }); }
 function requestGuestSpawn(tile){
   const session = gameState.session;
   if (session?.role !== 'guest' || pendingGuestMoveResolve) return Promise.resolve(null);
@@ -194,7 +196,7 @@ function startGuestCombatPhase(){
   guestCombatPhaseRunning = true;
   runCombatPhase(ruleContext(), session.localSeat).catch(error => console.error('Guest combat phase failed:', error)).finally(() => { guestCombatPhaseRunning = false; });
 }
-function ruleContext(){return {players:()=>gameState.players,troops:()=>gameState.troops,tiles:()=>gameState.tiles,countTiles,getTile,isLocked,getStats,isEmptyTile,neighbors,sleep,log,coloredName,cssColor,createTroop,destroyTroop,waitFor,validateIntent,updateHUD,document,hexSize:HEX_SIZE,axialToPixel:(q,r)=>axialToPixel(q,r,HEX_SIZE),boardX,boardY,burst,winScore:gameState.winScore,setGameOver:value=>{gameState.gameOver=value;},showVictory,weights:AIW,cpuChooseSpawnTile:(_pi,options)=>chooseCpuSpawnTile({getTile},options),waitForSpawn:chooseSpawnTileHuman,hasLegalMove,hasLegalAttack,daggerAvailable,gameOver:()=>gameState.gameOver,performSacrifice,executeMove,executeAttack,clearHighlights,multiplayerRole:gameState.session?.role,requestGuestMove,requestGuestCombat,actionApplied:action=>{const session=gameState.session;if(session?.role==='host')session.publishAccepted(action,{type:action.type},session.createSnapshot(gameState));},setDecision:(seat,phase)=>{const session=gameState.session;if(!session)return;session.setDecision({seat,phase});if(session.role==='host')session.publishSnapshot(session.createSnapshot(gameState));},moveDecision:(pi,isPreCombat)=>CPU_MOVE_TREE({pi,isPreCombat}),combatDecision:pi=>CPU_COMBAT_TREE({pi})};}
+function ruleContext(){return {players:()=>gameState.players,troops:()=>gameState.troops,tiles:()=>gameState.tiles,countTiles,getTile,isLocked,getStats,isEmptyTile,neighbors,sleep,log,coloredName,cssColor,createTroop,destroyTroop,waitFor,validateIntent,updateHUD,document,hexSize:HEX_SIZE,axialToPixel:(q,r)=>axialToPixel(q,r,HEX_SIZE),boardX,boardY,burst,winScore:gameState.winScore,setGameOver:value=>{gameState.gameOver=value;},showVictory,weights:AIW,cpuChooseSpawnTile:(_pi,options)=>chooseCpuSpawnTile({getTile},options),waitForSpawn:chooseSpawnTileHuman,hasLegalMove,hasLegalAttack,daggerAvailable,gameOver:()=>gameState.gameOver,performSacrifice,executeMove,executeAttack,clearHighlights,multiplayerRole:gameState.session?.role,requestGuestMove,requestGuestCombat,requestGuestSacrifice,requestGuestSacrificeCancel,actionApplied:action=>{const session=gameState.session;if(session?.role==='host')session.publishAccepted(action,{type:action.type},session.createSnapshot(gameState));},setDecision:(seat,phase)=>{const session=gameState.session;if(!session)return;session.setDecision({seat,phase});if(session.role==='host')session.publishSnapshot(session.createSnapshot(gameState));},moveDecision:(pi,isPreCombat)=>CPU_MOVE_TREE({pi,isPreCombat}),combatDecision:pi=>CPU_COMBAT_TREE({pi})};}
 function daggerAvailable(pi){return combatDaggerAvailable({countTiles,troops:()=>gameState.troops},pi);}
 function cpuShouldUseDagger(pi){return aiShouldUseDagger({players:gameState.players,troops:gameState.troops,weights:AIW()},pi);}
 
@@ -366,10 +368,13 @@ const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMa
               ? { type: 'move', troopId: action.troopId, q: action.to.q, r: action.to.r }
             : action.type === 'attack' && phase === 'combat'
               ? { type: 'attack', attackerId: action.attackerId, defenderId: action.defenderId }
-              : action.type === 'pass' && ['move1', 'move2', 'combat'].includes(phase) ? { type: 'skip' } : null;
-          const pendingKind = phase === 'spawn' ? 'spawnChoice' : phase === 'combat' ? 'attack' : 'move';
+              : action.type === 'pass' && ['move1', 'move2', 'combat'].includes(phase) ? { type: 'skip' }
+                : action.type === 'sacrifice' && ['move1', 'move2', 'combat'].includes(phase) ? { type: 'sacrifice', troopIds: action.troopIds } : action.type === 'cancelSacrifice' && ['move1', 'move2', 'combat'].includes(phase) ? { type: 'cancel' } : null;
+          const pendingKind = phase === 'spawn' ? 'spawnChoice' : ['sacrifice', 'cancelSacrifice'].includes(action.type) ? 'sacrifice' : phase === 'combat' ? 'attack' : 'move';
           const pending = localActions.current();
-          const checked = intent && validateIntent(intent, phase === 'spawn' ? 'spawn' : phase === 'combat' ? 'attack' : 'move', seat, pending?.options || []);
+          const checked = action.type === 'cancelSacrifice' && pending?.kind === 'sacrifice'
+            ? { type: 'cancel' }
+            : intent && validateIntent(intent, action.type === 'sacrifice' ? 'sacrifice' : phase === 'spawn' ? 'spawn' : phase === 'combat' ? 'attack' : 'move', seat, pending?.options || []);
           const requestSeq = (gameState.session.lastRequestSeq.get(seat) || 0) + 1;
           let rejection = null;
           if (message.rateLimited) rejection = 'RATE_LIMITED';
@@ -381,7 +386,7 @@ const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMa
           else {
             const authorized = gameState.session.authorizeRequest(seat, action, requestSeq);
             if (!authorized.ok) coordinator.sendTo(seat, 'actionRejected', { requestSeq, code: authorized.code });
-            else localActions.submit(intent);
+            else { localActions.submit(intent); if (action.type === 'cancelSacrifice') gameState.session.publishAccepted(action, { type: 'cancelSacrifice' }, gameState.session.createSnapshot(gameState)); }
           }
         }
         if (message.type === 'hello' && role === 'host' && gameState.session) {
