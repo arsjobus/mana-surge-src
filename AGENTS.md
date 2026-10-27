@@ -14,7 +14,7 @@ python3 -m http.server 8000
 
 Then open `http://localhost:8000`. The trainer has no build step or external runtime dependencies. From `trainer/`, run `npm test` to smoke-test 200 simulated matches, `npm run train` to evolve weights, and `npm run calibrate` to generate difficulty presets. Training can take longer and rewrites weight output; use a fixed seed when reproducibility matters.
 
-Run the browser E2E suite with `npm run cypress:run`. It expects the repository server to be available at `http://127.0.0.1:8000` (start it with `npm run serve` in another terminal first).
+Run the browser E2E suite with `npm run cypress:run`. It expects the repository server to be available at `http://127.0.0.1:8000` (start it with `npm run serve` in another terminal first). Cypress has exited with code 134 before reporting results when run in the sandbox; run it outside the sandbox for a successful result and ask me to approve to do so.
 
 ## Coding Style & Naming Conventions
 

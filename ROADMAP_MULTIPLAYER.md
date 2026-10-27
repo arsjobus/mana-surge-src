@@ -82,10 +82,18 @@ Progress: `src/multiplayer/LobbyUI.js` adds the host/guest lobby, seat and CPU/o
 - [ ] Update `TurnSystem.js` so host CPU turns run locally, host human choices are applied locally through the same validation path, and guest turns wait for validated guest actions.
 - [ ] Broadcast host-approved updates in deterministic order; guests apply only updates from the host and show waiting/turn ownership status.
 - [ ] Prevent a guest from acting for another seat or sending actions outside its active turn; return a safe rejection and keep the match synchronized.
-- [ ] Handle host disconnect as match termination for this version; show a clear result and offer solo restart. Do not implement host migration unless a later roadmap explicitly covers it.
+- [x] Handle host disconnect as match termination for this version; show a clear result and offer solo restart. Do not implement host migration unless a later roadmap explicitly covers it.
 - [ ] If a guest disconnects, pause at a safe decision boundary and let the host retry, replace that seat with CPU, or end the match.
 
 Progress: `GameState` now reserves game-layer session/version fields, and `src/multiplayer/MatchSession.js` adds a transport-independent host/guest session model with active-seat/phase tracking, guest action authorization, ordered version acceptance, Phaser-free canonical snapshot projection, and distinct host/guest disconnect outcomes. Turn-loop action routing, snapshot application/rendering, and lobby-to-session startup are not yet connected; do not treat multiplayer matches as playable until those items and verification below are complete.
+
+Turn-system integration has begun: `TurnSystem.js` now reports spawn, move I, combat, move II, and end-phase decision boundaries through an optional callback. `GameRuntime.js` forwards those boundaries to an attached `GameState.session`. The lobby now hands off into Phaser, constructs the host/guest `SessionCoordinator` and `MatchSession`, starts the guest protocol handshake, and sends the initial host seat assignment after hello. The host waits for all open guest seats to have a connected data channel before starting. This remains a connection/session bootstrap only; action transport, snapshot application/rendering, gameplay disconnect handling, and ending/restarting a network match remain outstanding.
+
+`MatchSession` now also exposes a callback-based host action request pipeline with seat/turn/phase/sequence authorization, game-rule validation, host-owned application, rejection, and accepted-update publication. Guest update acceptance checks strictly increasing versions and the snapshot's phase/active-seat/version fields; action request sequences are tracked per guest. These are session primitives only: the Phaser turn loop does not yet call this pipeline, snapshots are not yet applied to/rendered by the guest, and disconnect recovery is not connected to in-match controls. Do not treat multiplayer matches as playable yet.
+
+Snapshot flow is now connected to the Phaser runtime. The host publishes a canonical snapshot at each decision boundary, and guests accept seat assignment, ordered action updates, and current-version snapshots only after validating the board, troop, player, and version fields; accepted snapshots rebuild the guest's game entities and HUD. Guests no longer advance an independent CPU/local turn loop. Guest action submission and host-side request-to-turn integration are still outstanding, so this is synchronization groundwork and not yet a playable match.
+
+The guest host-disconnect path is now connected to a match-ended modal: it stops the session, cancels pending local input, and uses the existing Restart control to return to the solo setup on reload. Host migration remains out of scope. Other multiplayer gameplay and guest disconnect handling remain outstanding.
 
 ### 6. Build coverage and perform manual verification
 

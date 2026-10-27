@@ -39,9 +39,10 @@ export async function endPhase(context, pi) {
 
 /** Run a move phase using rule, AI, and interaction callbacks supplied by the scene. */
 export async function movePhase(context, pi, isPreCombat) {
-  const { players, hasLegalMove, daggerAvailable, document, gameOver, waitFor, validateIntent, performSacrifice,
+  const { players, hasLegalMove, daggerAvailable, document, gameOver, waitFor, validateIntent, performSacrifice, setDecision,
     updateHUD, getTile, executeMove, sleep, moveDecision, clearHighlights } = context;
   const player = players()[pi];
+  setDecision?.(pi, isPreCombat ? 'move1' : 'move2');
   const skipButton = document.getElementById('skip-btn');
   const daggerButton = document.getElementById('dagger-btn');
   while (true) {
@@ -91,9 +92,10 @@ export async function movePhase(context, pi, isPreCombat) {
 
 /** Run combat actions until the player passes or runs out of action points. */
 export async function combatPhase(context, pi) {
-  const { players, hasLegalAttack, daggerAvailable, document, gameOver, waitFor, performSacrifice,
+  const { players, hasLegalAttack, daggerAvailable, document, gameOver, waitFor, performSacrifice, setDecision,
     updateHUD, executeAttack, sleep, combatDecision, clearHighlights } = context;
   const player = players()[pi];
+  setDecision?.(pi, 'combat');
   const skipButton = document.getElementById('skip-btn');
   const daggerButton = document.getElementById('dagger-btn');
   while (true) {
@@ -142,10 +144,11 @@ export async function combatPhase(context, pi) {
 }
 
 export async function playTurn(context, pi) {
-  const { players, log, coloredName, cssColor, setPhaseUI, startPhase, movePhase, combatPhase, endPhase, isGameOver } = context;
+  const { players, log, coloredName, cssColor, setPhaseUI, setDecision, startPhase, movePhase, combatPhase, endPhase, isGameOver } = context;
   const player = players()[pi];
   log(`<b style="color:${cssColor(player.colorHex)}">— ${player.name}'s Turn —</b>`);
   setPhaseUI(pi, 'Start Phase');
+  setDecision?.(pi, 'spawn');
   await startPhase(pi); if (isGameOver()) return;
   setPhaseUI(pi, 'Move Phase I');
   await movePhase(pi, true); if (isGameOver()) return;
@@ -154,6 +157,7 @@ export async function playTurn(context, pi) {
   setPhaseUI(pi, 'Move Phase II');
   await movePhase(pi, false); if (isGameOver()) return;
   setPhaseUI(pi, 'End Phase');
+  setDecision?.(pi, 'end');
   await endPhase(pi);
 }
 

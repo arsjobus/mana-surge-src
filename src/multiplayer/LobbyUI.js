@@ -71,6 +71,8 @@ export function setupMultiplayerLobby({ state, onStartMatch = () => {} }) {
     state.multiplayer = { role, hostSeat, roster, matchId, peers: hostPeers };
     document.getElementById('lobby-start-match').onclick = () => {
       if (openSeats.some(openSeat => !hostPeers.has(openSeat))) return setStatus('Create an invite for each open guest seat, or change that seat to CPU.');
+      const notConnected = openSeats.filter(openSeat => hostPeers.get(openSeat)?.channel?.readyState !== 'open');
+      if (notConnected.length) return setStatus(`Waiting for ${notConnected.map(seat => ['Red', 'Blue', 'Green'][seat]).join(' and ')} to connect. Ask them to prepare the invite and return their answer code first.`);
       onStartMatch(state.multiplayer);
     };
     const seat = Number(document.getElementById('invite-seat').value);
@@ -99,7 +101,7 @@ export function setupMultiplayerLobby({ state, onStartMatch = () => {} }) {
     try {
       guestPeer = new WebRtcPeer({ role: 'guest', matchId: data.matchId, localSeat: data.seat, remoteSeat: data.hostSeat, onState: value => setStatus(`Connection: ${value}`), onError: () => setStatus('Connection error.') });
       const answer = await guestPeer.acceptOffer(data.offer);
-      state.multiplayer = { role, hostSeat: data.hostSeat, localSeat: data.seat, matchId: data.matchId, winScore: data.score };
+      state.multiplayer = { role, hostSeat: data.hostSeat, localSeat: data.seat, matchId: data.matchId, winScore: data.score, peer: guestPeer };
       setOutput(`You are joining as ${['Red', 'Blue', 'Green'][data.seat]}`, encode({ v: 1, type: 'answer', matchId: data.matchId, seat: data.seat, answer }));
       document.getElementById('guest-seat-confirm').textContent = `Confirm ${['Red', 'Blue', 'Green'][data.seat]} seat`;
       document.getElementById('guest-seat-confirm').onclick = () => { confirmed = true; setStatus('Seat confirmed. Return the answer code to the host and wait for the match to start.'); };

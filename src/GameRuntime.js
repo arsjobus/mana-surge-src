@@ -10,6 +10,8 @@ import { createGameConfig, GAME_WIDTH } from './config/gameConfig.js';
 import { Selector, Sequence, Condition, Action } from './ai/BehaviorTree.js';
 import { cpuChooseMove } from './ai/CpuMoveAI.js';
 import { cpuChooseAttack, cpuShouldUseDagger as aiShouldUseDagger } from './ai/CpuCombatAI.js';
+import { MatchSession } from './multiplayer/MatchSession.js';
+import { SessionCoordinator } from './multiplayer/SessionCoordinator.js';
 /* ======================================================================
    MANA SURGE — browser game runtime
    ====================================================================== */
@@ -36,6 +38,7 @@ const localActions = createLocalActionAdapter();
    Game state
 --------------------------------------------------------------------- */
 let scene = null;
+let multiplayerSetup = null;
 
 /* ---------------------------------------------------------------------
    Tile type descriptions
@@ -115,7 +118,38 @@ function setupInitialTroops(){ BoardModel.setupInitialTroops(gameState.players,g
 
 function waitFor(kind,pi,options=[]){return localActions.request(kind,pi,options);}
 function validateIntent(intent,phase,pi,spawnOptions=[]){return validateActionIntent({troops:()=>gameState.troops,getTroop:id=>gameState.troops.find(troop=>troop.id===id),isLocked,isEmptyTile,neighbors,getTroopAt,daggerAvailable},intent,{phase,playerIndex:pi,spawnOptions});}
-function ruleContext(){return {players:()=>gameState.players,troops:()=>gameState.troops,tiles:()=>gameState.tiles,countTiles,getTile,isLocked,getStats,isEmptyTile,neighbors,sleep,log,coloredName,cssColor,createTroop,destroyTroop,waitFor,validateIntent,updateHUD,document,hexSize:HEX_SIZE,axialToPixel:(q,r)=>axialToPixel(q,r,HEX_SIZE),boardX,boardY,burst,winScore:gameState.winScore,setGameOver:value=>{gameState.gameOver=value;},showVictory,weights:AIW,cpuChooseSpawnTile:(_pi,options)=>chooseCpuSpawnTile({getTile},options),waitForSpawn:chooseSpawnTileHuman,hasLegalMove,hasLegalAttack,daggerAvailable,gameOver:()=>gameState.gameOver,performSacrifice,executeMove,executeAttack,clearHighlights,moveDecision:(pi,isPreCombat)=>CPU_MOVE_TREE({pi,isPreCombat}),combatDecision:pi=>CPU_COMBAT_TREE({pi})};}
+function applyHostSnapshot(snapshot){
+  if (!snapshot || !Array.isArray(snapshot.players) || snapshot.players.length !== 3 || !Array.isArray(snapshot.tiles) || snapshot.tiles.length !== gameState.tiles.size || !Array.isArray(snapshot.troops) || !Number.isSafeInteger(snapshot.nextTroopId) || !Number.isSafeInteger(snapshot.winScore)) return false;
+  const tileKeys = new Set();
+  if (snapshot.tiles.some(tile => { const tileKey = key(tile.q,tile.r); if (!Number.isInteger(tile.q) || !Number.isInteger(tile.r) || !gameState.tiles.has(tileKey) || tileKeys.has(tileKey) || !Object.hasOwn(TILE_INFO,tile.type)) return true; tileKeys.add(tileKey); return false; })) return false;
+  const troopIds = new Set();
+  const troopCoords = new Set();
+  for (const troop of snapshot.troops) {
+    const coordKey = key(troop.q,troop.r);
+    if (!Number.isSafeInteger(troop.id) || troop.id < 1 || troopIds.has(troop.id) || !Number.isInteger(troop.owner) || troop.owner < 0 || troop.owner > 2 || !gameState.tiles.has(coordKey) || troopCoords.has(coordKey)) return false;
+    troopIds.add(troop.id);
+    troopCoords.add(coordKey);
+  }
+  if (snapshot.nextTroopId <= Math.max(0, ...troopIds) || snapshot.players.some(player => !Number.isSafeInteger(player.mana) || !Number.isSafeInteger(player.actionPoints) || !player.spawner || !Number.isInteger(player.spawner.q) || !Number.isInteger(player.spawner.r))) return false;
+  for (const tile of gameState.tiles.values()) tile.occupantId = null;
+  for (const troop of gameState.troops) { troop.sprite?.destroy(); troop.selSprite?.destroy(); }
+  gameState.troops = [];
+  snapshot.players.forEach((player, i) => Object.assign(gameState.players[i], { mana: player.mana, actionPoints: player.actionPoints, spawner: { ...player.spawner } }));
+  for (const item of snapshot.tiles) Object.assign(getTile(item.q,item.r), { type: item.type, occupantId: null });
+  for (const item of snapshot.troops) {
+    const troop = createTroop(item.owner, item.q, item.r, false);
+    troop.id = item.id;
+    getTile(item.q,item.r).occupantId = item.id;
+  }
+  gameState.nextTroopId = snapshot.nextTroopId;
+  gameState.winScore = snapshot.winScore;
+  gameState.currentPlayerIndex = snapshot.activeSeat;
+  gameState.stateVersion = snapshot.stateVersion;
+  clearHighlights();
+  updateHUD();
+  return true;
+}
+function ruleContext(){return {players:()=>gameState.players,troops:()=>gameState.troops,tiles:()=>gameState.tiles,countTiles,getTile,isLocked,getStats,isEmptyTile,neighbors,sleep,log,coloredName,cssColor,createTroop,destroyTroop,waitFor,validateIntent,updateHUD,document,hexSize:HEX_SIZE,axialToPixel:(q,r)=>axialToPixel(q,r,HEX_SIZE),boardX,boardY,burst,winScore:gameState.winScore,setGameOver:value=>{gameState.gameOver=value;},showVictory,weights:AIW,cpuChooseSpawnTile:(_pi,options)=>chooseCpuSpawnTile({getTile},options),waitForSpawn:chooseSpawnTileHuman,hasLegalMove,hasLegalAttack,daggerAvailable,gameOver:()=>gameState.gameOver,performSacrifice,executeMove,executeAttack,clearHighlights,setDecision:(seat,phase)=>{const session=gameState.session;if(!session)return;session.setDecision({seat,phase});if(session.role==='host')session.publishSnapshot(session.createSnapshot(gameState));},moveDecision:(pi,isPreCombat)=>CPU_MOVE_TREE({pi,isPreCombat}),combatDecision:pi=>CPU_COMBAT_TREE({pi})};}
 function daggerAvailable(pi){return combatDaggerAvailable({countTiles,troops:()=>gameState.troops},pi);}
 function cpuShouldUseDagger(pi){return aiShouldUseDagger({players:gameState.players,troops:gameState.troops,weights:AIW()},pi);}
 
@@ -152,6 +186,17 @@ function buildManaPanel(){ hud.buildManaPanel(); }
 function updateHUD(){ hud.updateHUD(); }
 function setPhaseUI(pi,phase){ hud.setPhaseUI(pi,phase); }
 function log(msg){ hud.log(msg); }
+function showHostDisconnected(){
+  gameState.gameOver = true;
+  localActions.cancel();
+  gameState.multiplayerCoordinator?.close();
+  const title = document.getElementById('victory-title');
+  const message = document.getElementById('victory-text');
+  title.textContent = 'Match ended';
+  title.style.color = '#e8c974';
+  message.textContent = 'The host disconnected. This match has ended. Restart to return to solo setup.';
+  document.getElementById('victory-modal').style.display = 'flex';
+}
 hud.setupActionButtons(clearHighlights);
 
 /* ---------------------------------------------------------------------
@@ -245,7 +290,45 @@ function showVictory(pi){
 --------------------------------------------------------------------- */
 const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMatch:async(thisScene,origin,bgm)=>{
     scene=thisScene;boardCX=origin.x;boardCY=origin.y;boardInput=createBoardInput(inputContext());
-    gameState.players=COLOR_META.map((c,i)=>({...c,human:i===gameState.humanColorIndex,mana:0,actionPoints:1}));
+    if (multiplayerSetup) {
+      const { role, hostSeat, localSeat, roster, matchId, peers, peer } = multiplayerSetup;
+      const local = role === 'host' ? hostSeat : localSeat;
+      gameState.players = COLOR_META.map((c, i) => ({ ...c, human: role === 'host' ? roster[i]?.controller !== 'cpu' : i === local, mana: 0, actionPoints: 1 }));
+      const coordinator = new SessionCoordinator({ role, matchId, localSeat: local, onMessage: ({ seat, message }) => {
+        if (message.type === 'hello' && role === 'host' && gameState.session) {
+          coordinator.sendTo(seat, 'seatAssignment', { seat, snapshot: gameState.session.createSnapshot(gameState, 'spawn') });
+        }
+        if (message.type === 'seatAssignment' && role === 'guest') {
+          const snapshot = message.payload.snapshot;
+          if (gameState.session?.acceptSnapshot({ stateVersion: snapshot.stateVersion, state: snapshot }, applyHostSnapshot)) gameState.session.onStatus(`Connected as ${gameState.players[local].name}. Waiting for host actions.`);
+        }
+        if ((message.type === 'snapshot' || message.type === 'actionAccepted') && role === 'guest') {
+          const accepted = message.type === 'snapshot'
+            ? gameState.session?.acceptSnapshot(message.payload, applyHostSnapshot)
+            : gameState.session?.acceptHostUpdate(message.payload, applyHostSnapshot);
+          if (!accepted) gameState.session?.onStatus('Host update was invalid or out of order. Waiting for a fresh snapshot.');
+        }
+        if (message.type === 'disconnect') gameState.session?.peerDisconnected(seat);
+      }, onPeerState: (seat, status) => {
+        if (status === 'connected' && role === 'guest') coordinator.startHandshake(seat);
+        if (status === 'disconnected' || status === 'failed' || status === 'closed') gameState.session?.peerDisconnected(seat);
+      } });
+      if (role === 'host') for (const [seat, hostPeer] of peers) coordinator.addPeer(seat, hostPeer);
+      else coordinator.addPeer(hostSeat, peer);
+      gameState.multiplayerCoordinator = coordinator;
+      gameState.session = new MatchSession({ role, localSeat: local, hostSeat, matchId, roster,
+        sendTo: (seat, type, payload) => coordinator.sendTo(seat, type, payload),
+        broadcast: (type, payload) => coordinator.broadcast(type, payload),
+        onStatus: message => { const el = document.getElementById('phase-text'); if (el) el.textContent = message; },
+        onEnd: result => { if (result.reason === 'hostDisconnected') showHostDisconnected(); }
+      });
+      if (role === 'guest' && peer.channel?.readyState === 'open') coordinator.startHandshake(hostSeat);
+    } else {
+      gameState.players=COLOR_META.map((c,i)=>({...c,human:i===gameState.humanColorIndex,mana:0,actionPoints:1}));
+      gameState.session = null;
+      gameState.multiplayerCoordinator?.close();
+      gameState.multiplayerCoordinator = null;
+    }
     try{
       buildBoard();
       drawBoard(thisScene, gameState.tiles, gameState.players, {x:boardCX, y:boardCY});
@@ -256,7 +339,8 @@ const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMa
       startBGM(thisScene,bgm);
       gameState.currentPlayerIndex = 0;
       syncUIStage();
-      gameLoop();
+      if (multiplayerSetup?.role !== 'guest') gameLoop();
+      else gameState.session?.onStatus('Synchronized with host. Waiting for host turn updates.');
     }catch(e){
       throw e;
     }
@@ -270,7 +354,9 @@ const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMa
    Boot / UI wiring
 --------------------------------------------------------------------- */
 let syncUIStage = ()=>{};
-export function startGame(){
+export function startGame(multiplayer = null){
+  multiplayerSetup = multiplayer;
+  if (multiplayer?.role === 'guest') gameState.winScore = multiplayer.winScore || gameState.winScore;
   const phaserGame = new Phaser.Game(createGameConfig(MainScene));
   syncUIStage=createUIStage(phaserGame,GAME_WIDTH);
 }
