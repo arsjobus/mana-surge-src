@@ -8,7 +8,7 @@ import { sleep, tweenPromise } from './utils/async.js';
 import { TILE_INFO, LOCKING_TYPES, COLOR_META } from './data/gameData.js';
 import { WEIGHT_PRESETS } from './data/aiWeights.js';
 import * as BoardModel from './board/BoardModel.js';
-import { buildTextures, renderBoard as drawBoard } from './board/BoardRenderer.js';
+import { buildTextures, renderBoard as drawBoard, TOKEN_SCALE } from './board/BoardRenderer.js';
 
 
 /* ---------------------------------------------------------------------

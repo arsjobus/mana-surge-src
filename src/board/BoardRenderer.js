@@ -250,7 +250,7 @@ const BADGE_TYPES = ['extra_action','extra_spawn','dagger']; // rendered a touch
    Rendering
 --------------------------------------------------------------------- */
 const TILE_SCALE = HEX_SIZE/54;
-const TOKEN_SCALE = (HEX_SIZE*0.5)/40;
+export const TOKEN_SCALE = (HEX_SIZE*0.5)/40;
 
 export function renderBoard(scene, tiles, players, boardOrigin){
   const boardX = (px) => boardOrigin.x + px;
