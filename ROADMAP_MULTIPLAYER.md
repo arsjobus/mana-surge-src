@@ -101,6 +101,8 @@ The guest host-disconnect path is now connected to a match-ended modal: it stops
 
 **Turn integration slice completed: guest moves and passes in Move Phase II.** The guest turn runner now starts for either move phase, requests moves and passes through the same input wait as Move Phase I, and waits for each host-approved snapshot before continuing. The host accepts those requests only while that guest owns the active Move Phase II decision, validates moves against the authoritative board, applies them through the existing turn loop, and broadcasts accepted snapshots. Focused Cypress coverage exercises Move Phase II authorization and ordered snapshot acceptance. Combat and dagger/sacrifice integration remain outstanding; the next slice is guest combat actions.
 
+**Turn integration slice completed: guest combat attacks and passes.** During a guest-owned Combat Phase, the host now accepts only attack or pass intents while its turn loop is waiting for that seat, validates the attacker and defender against the authoritative board, and lets the existing host combat resolver determine simultaneous casualties. Accepted attacks and passes publish ordered host snapshots; the guest starts its combat input loop only after an authoritative snapshot marks its seat active. Focused Cypress coverage verifies the authorized combat request and host-resolved event/snapshot synchronization. Dagger/sacrifice actions, CPU action publication, guest disconnect recovery, and complete match progression remain outstanding; the next slice is dagger/sacrifice.
+
 ### 6. Build coverage and perform manual verification
 
 - [x] Add unit or browser tests for protocol validation, host action authorization, sequence handling, and guest rejection paths.

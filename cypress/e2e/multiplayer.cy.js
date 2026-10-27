@@ -130,6 +130,37 @@ describe('multiplayer protocol and host authorization', () => {
     expect(guest.stateVersion).to.equal(1);
     expect(updates.map(update => update.type)).to.deep.equal(['actionRequest', 'actionAccepted']);
   });
+
+  it('accepts a guest combat intent and synchronizes the host-resolved outcome', () => {
+    const updates = [];
+    const state = { activeSeat: 1, phase: 'combat', stateVersion: 0, casualties: [] };
+    const host = new MatchSession({
+      role: 'host', localSeat: 0, hostSeat: 0, matchId: 'match_identifier_1234',
+      roster: [{ seat: 0, controller: 'host' }, { seat: 1, controller: 'guest' }, { seat: 2, controller: 'cpu' }],
+      broadcast: (type, payload) => updates.push({ type, payload })
+    });
+    const guest = new MatchSession({
+      role: 'guest', localSeat: 1, hostSeat: 0, matchId: 'match_identifier_1234',
+      sendTo: (_seat, type, payload) => { updates.push({ type, payload }); return true; }
+    });
+    host.setDecision({ seat: 1, phase: 'combat' });
+    guest.acceptSnapshot({ stateVersion: 0, state: { ...state } }, () => true);
+    const attack = { type: 'attack', attackerId: 7, defenderId: 9 };
+
+    expect(guest.requestAction(attack, guest.nextRequestSeq)).to.equal(true);
+    const result = host.handleActionRequest(1, attack, 1, {
+      validate: (action, seat, phase) => seat === 1 && phase === 'combat' ? action : null,
+      apply: () => { state.casualties = [9]; return { type: 'attack', casualties: [9] }; },
+      createSnapshot: () => ({ ...state })
+    });
+
+    expect(result.ok).to.equal(true);
+    expect(result.update.event).to.deep.equal({ type: 'attack', casualties: [9] });
+    expect(guest.acceptHostUpdate(result.update, snapshot => { Object.assign(state, snapshot); return true; })).to.equal(true);
+    expect(state.casualties).to.deep.equal([9]);
+    expect(guest.stateVersion).to.equal(1);
+    expect(updates.map(update => update.type)).to.deep.equal(['actionRequest', 'actionAccepted']);
+  });
 });
 
 describe('multiplayer session handshake', () => {

@@ -108,7 +108,7 @@ export async function movePhase(context, pi, isPreCombat) {
 /** Run combat actions until the player passes or runs out of action points. */
 export async function combatPhase(context, pi) {
   const { players, hasLegalAttack, daggerAvailable, document, gameOver, waitFor, performSacrifice, setDecision,
-    updateHUD, executeAttack, sleep, combatDecision, clearHighlights } = context;
+    updateHUD, executeAttack, sleep, combatDecision, clearHighlights, multiplayerRole, requestGuestMove, actionApplied } = context;
   const player = players()[pi];
   setDecision?.(pi, 'combat');
   const skipButton = document.getElementById('skip-btn');
@@ -128,16 +128,27 @@ export async function combatPhase(context, pi) {
       skipButton.disabled = true;
       const action = validateIntent(intent, 'attack', pi);
       if (!action) continue;
+      if (multiplayerRole === 'guest') {
+        if (action.type === 'skip') {
+          await requestGuestMove?.({ type: 'pass' });
+          break;
+        }
+        if (action.type === 'attack') {
+          await requestGuestMove?.({ type: 'attack', attackerId: action.attacker.id, defenderId: action.defender.id });
+          continue;
+        }
+      }
       if (action.type === 'dagger') {
         const didSacrifice = await performSacrifice(pi);
         if (didSacrifice) player.actionPoints--;
         updateHUD();
         continue;
       }
-      if (action.type === 'skip') break;
+      if (action.type === 'skip') { actionApplied?.({ type: 'pass' }); break; }
       await executeAttack(action.attacker, action.defender);
       player.actionPoints--;
       updateHUD();
+      actionApplied?.({ type: 'attack', attackerId: action.attacker.id, defenderId: action.defender.id });
     } else {
       await sleep(550);
       const decision = combatDecision(pi);

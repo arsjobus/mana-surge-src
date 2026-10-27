@@ -42,6 +42,7 @@ let multiplayerSetup = null;
 let pendingGuestMoveResolve = null;
 let guestMovePhaseRunning = false;
 let guestSpawnPhaseRunning = false;
+let guestCombatPhaseRunning = false;
 
 /* ---------------------------------------------------------------------
    Tile type descriptions
@@ -163,6 +164,7 @@ function requestGuestMove(action){
     }
   });
 }
+function requestGuestCombat(action){ return requestGuestMove(action); }
 function requestGuestSpawn(tile){
   const session = gameState.session;
   if (session?.role !== 'guest' || pendingGuestMoveResolve) return Promise.resolve(null);
@@ -186,7 +188,13 @@ function startGuestSpawnPhase(){
   guestSpawnPhaseRunning = true;
   runStartPhase(ruleContext(), session.localSeat).catch(error => console.error('Guest spawn phase failed:', error)).finally(() => { guestSpawnPhaseRunning = false; });
 }
-function ruleContext(){return {players:()=>gameState.players,troops:()=>gameState.troops,tiles:()=>gameState.tiles,countTiles,getTile,isLocked,getStats,isEmptyTile,neighbors,sleep,log,coloredName,cssColor,createTroop,destroyTroop,waitFor,validateIntent,updateHUD,document,hexSize:HEX_SIZE,axialToPixel:(q,r)=>axialToPixel(q,r,HEX_SIZE),boardX,boardY,burst,winScore:gameState.winScore,setGameOver:value=>{gameState.gameOver=value;},showVictory,weights:AIW,cpuChooseSpawnTile:(_pi,options)=>chooseCpuSpawnTile({getTile},options),waitForSpawn:chooseSpawnTileHuman,hasLegalMove,hasLegalAttack,daggerAvailable,gameOver:()=>gameState.gameOver,performSacrifice,executeMove,executeAttack,clearHighlights,multiplayerRole:gameState.session?.role,requestGuestMove,actionApplied:action=>{const session=gameState.session;if(session?.role==='host')session.publishAccepted(action,{type:action.type},session.createSnapshot(gameState));},setDecision:(seat,phase)=>{const session=gameState.session;if(!session)return;session.setDecision({seat,phase});if(session.role==='host')session.publishSnapshot(session.createSnapshot(gameState));},moveDecision:(pi,isPreCombat)=>CPU_MOVE_TREE({pi,isPreCombat}),combatDecision:pi=>CPU_COMBAT_TREE({pi})};}
+function startGuestCombatPhase(){
+  const session = gameState.session;
+  if (session?.role !== 'guest' || session.phase !== 'combat' || session.activeSeat !== session.localSeat || guestCombatPhaseRunning || gameState.gameOver) return;
+  guestCombatPhaseRunning = true;
+  runCombatPhase(ruleContext(), session.localSeat).catch(error => console.error('Guest combat phase failed:', error)).finally(() => { guestCombatPhaseRunning = false; });
+}
+function ruleContext(){return {players:()=>gameState.players,troops:()=>gameState.troops,tiles:()=>gameState.tiles,countTiles,getTile,isLocked,getStats,isEmptyTile,neighbors,sleep,log,coloredName,cssColor,createTroop,destroyTroop,waitFor,validateIntent,updateHUD,document,hexSize:HEX_SIZE,axialToPixel:(q,r)=>axialToPixel(q,r,HEX_SIZE),boardX,boardY,burst,winScore:gameState.winScore,setGameOver:value=>{gameState.gameOver=value;},showVictory,weights:AIW,cpuChooseSpawnTile:(_pi,options)=>chooseCpuSpawnTile({getTile},options),waitForSpawn:chooseSpawnTileHuman,hasLegalMove,hasLegalAttack,daggerAvailable,gameOver:()=>gameState.gameOver,performSacrifice,executeMove,executeAttack,clearHighlights,multiplayerRole:gameState.session?.role,requestGuestMove,requestGuestCombat,actionApplied:action=>{const session=gameState.session;if(session?.role==='host')session.publishAccepted(action,{type:action.type},session.createSnapshot(gameState));},setDecision:(seat,phase)=>{const session=gameState.session;if(!session)return;session.setDecision({seat,phase});if(session.role==='host')session.publishSnapshot(session.createSnapshot(gameState));},moveDecision:(pi,isPreCombat)=>CPU_MOVE_TREE({pi,isPreCombat}),combatDecision:pi=>CPU_COMBAT_TREE({pi})};}
 function daggerAvailable(pi){return combatDaggerAvailable({countTiles,troops:()=>gameState.troops},pi);}
 function cpuShouldUseDagger(pi){return aiShouldUseDagger({players:gameState.players,troops:gameState.troops,weights:AIW()},pi);}
 
@@ -356,16 +364,18 @@ const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMa
             ? { type: 'spawn', q: action.tile.q, r: action.tile.r }
             : action.type === 'move' && ['move1', 'move2'].includes(phase)
               ? { type: 'move', troopId: action.troopId, q: action.to.q, r: action.to.r }
-              : action.type === 'pass' && ['move1', 'move2'].includes(phase) ? { type: 'skip' } : null;
-          const pendingKind = phase === 'spawn' ? 'spawnChoice' : 'move';
+            : action.type === 'attack' && phase === 'combat'
+              ? { type: 'attack', attackerId: action.attackerId, defenderId: action.defenderId }
+              : action.type === 'pass' && ['move1', 'move2', 'combat'].includes(phase) ? { type: 'skip' } : null;
+          const pendingKind = phase === 'spawn' ? 'spawnChoice' : phase === 'combat' ? 'attack' : 'move';
           const pending = localActions.current();
-          const checked = intent && validateIntent(intent, phase === 'spawn' ? 'spawn' : 'move', seat, pending?.options || []);
+          const checked = intent && validateIntent(intent, phase === 'spawn' ? 'spawn' : phase === 'combat' ? 'attack' : 'move', seat, pending?.options || []);
           const requestSeq = (gameState.session.lastRequestSeq.get(seat) || 0) + 1;
           let rejection = null;
           if (message.rateLimited) rejection = 'RATE_LIMITED';
           else if (gameState.session.roster?.[seat]?.controller !== 'guest') rejection = 'NOT_YOUR_SEAT';
           else if (gameState.session.activeSeat !== seat || pending?.playerIndex !== seat || pending?.kind !== pendingKind) rejection = 'NOT_YOUR_TURN';
-          else if (!['move1', 'move2', 'spawn'].includes(phase)) rejection = 'WRONG_PHASE';
+          else if (!['move1', 'move2', 'spawn', 'combat'].includes(phase)) rejection = 'WRONG_PHASE';
           else if (!checked) rejection = 'ILLEGAL_ACTION';
           if (rejection) coordinator.sendTo(seat, 'actionRejected', { requestSeq, code: rejection });
           else {
@@ -391,7 +401,7 @@ const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMa
             pendingGuestMoveResolve = null;
             resolve(true);
           }
-          if (accepted) { startGuestSpawnPhase(); startGuestMovePhase(); }
+          if (accepted) { startGuestSpawnPhase(); startGuestMovePhase(); startGuestCombatPhase(); }
         }
         if (message.type === 'actionRejected' && role === 'guest') {
           if (!gameState.session) return;
