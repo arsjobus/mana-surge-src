@@ -98,7 +98,7 @@ The guest host-disconnect path is now connected to a match-ended modal: it stops
 ### 6. Build coverage and perform manual verification
 
 - [x] Add unit or browser tests for protocol validation, host action authorization, sequence handling, and guest rejection paths.
-- [ ] Extend Cypress coverage for solo regression, host setup, guest seat assignment, and multiplayer UI states using a deterministic fake transport where appropriate.
+- [x] Extend Cypress coverage for solo regression, host setup, guest seat assignment, and multiplayer UI states using a deterministic fake transport where appropriate.
 - [ ] Manually test two- and three-browser sessions on the same machine/network, including legal and illegal actions, victory, restart/leave, and disconnects.
 - [ ] Manually test a connection between separate networks and document whether STUN-only succeeds; do not claim universal reachability based only on local-network tests.
 - [ ] Check browser consoles for errors and verify cleanup after leaving or restarting a session.
@@ -106,7 +106,9 @@ The guest host-disconnect path is now connected to a match-ended modal: it stops
 
 Coverage: `cypress/e2e/multiplayer.cy.js` checks protocol envelope round trips and malformed/mismatched input, host seat and turn authorization, replay rejection, wrong-phase actions, and game-rule rejection. The full Cypress suite passes. These tests cover session primitives; they do not establish that a complete multiplayer match is playable.
 
-Additional Cypress coverage: `multiplayer.cy.js` now checks host seat selection, CPU/open guest seat configuration, lobby cancellation, and malformed invite feedback. The broader checklist remains open pending deterministic guest assignment and complete multiplayer flow coverage.
+Additional Cypress coverage: `multiplayer.cy.js` checks host seat selection, CPU/open guest seat configuration, lobby cancellation, malformed invite feedback, and deterministic guest seat assignment. Complete multiplayer flow coverage remains outstanding.
+
+The multiplayer Cypress coverage now also exercises the guest handshake and host seat-assignment message through an in-memory fake transport. The full suite passes (15 tests across completion, gameplay, and multiplayer specs); this verifies protocol/session handoff behavior without claiming a live WebRTC match is playable.
 
 ## Completion criteria
 

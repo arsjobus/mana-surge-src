@@ -1,5 +1,6 @@
 import { MatchSession } from '../../src/multiplayer/MatchSession.js';
 import { decodeMessage, encodeMessage } from '../../src/multiplayer/MessageCodec.js';
+import { SessionCoordinator } from '../../src/multiplayer/SessionCoordinator.js';
 
 describe('multiplayer protocol and host authorization', () => {
   it('round trips valid protocol messages and rejects malformed or mismatched messages', () => {
@@ -71,6 +72,60 @@ describe('multiplayer protocol and host authorization', () => {
     expect(sent[sent.length - 1]).to.deep.equal([1, 'actionRejected', { requestSeq: 1, code: 'ILLEGAL_ACTION' }]);
   });
 });
+
+describe('multiplayer session handshake', () => {
+  it('assigns the invited guest seat over a deterministic fake transport', () => {
+    const matchId = 'match_identifier_1234';
+    const received = [];
+    const hostPeer = createFakePeer();
+    const guestPeer = createFakePeer();
+    hostPeer.connect(guestPeer);
+    guestPeer.connect(hostPeer);
+
+    const host = new SessionCoordinator({
+      role: 'host', matchId, localSeat: 2,
+      onMessage: ({ seat, message }) => {
+        if (message.type === 'hello') {
+          host.sendTo(seat, 'seatAssignment', {
+            seat,
+            snapshot: { activeSeat: 2, phase: 'spawn', stateVersion: 0 }
+          });
+        }
+      }
+    });
+    const guest = new SessionCoordinator({
+      role: 'guest', matchId, localSeat: 0,
+      onMessage: ({ seat, message }) => received.push({ seat, message })
+    });
+    host.addPeer(0, hostPeer);
+    guest.addPeer(2, guestPeer);
+
+    guest.startHandshake(2);
+
+    expect(received).to.have.length(1);
+    expect(received[0].seat).to.equal(2);
+    expect(received[0].message.type).to.equal('seatAssignment');
+    expect(received[0].message.payload.seat).to.equal(0);
+    expect(received[0].message.payload.snapshot).to.deep.equal({
+      activeSeat: 2, phase: 'spawn', stateVersion: 0
+    });
+    host.close();
+    guest.close();
+  });
+});
+
+function createFakePeer() {
+  return {
+    onMessage: null,
+    remote: null,
+    connect(peer) { this.remote = peer; },
+    send(type, payload) {
+      this.remote?.onMessage?.({ type, payload, senderSeat: type === 'hello' ? null : 2 });
+      return true;
+    },
+    close() {}
+  };
+}
 
 describe('multiplayer lobby UI', () => {
   beforeEach(() => {
