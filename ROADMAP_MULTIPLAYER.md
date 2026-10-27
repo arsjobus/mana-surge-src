@@ -107,7 +107,7 @@ The guest host-disconnect path is now connected to a match-ended modal: it stops
 
 **Turn integration slice completed: CPU move and attack publication.** CPU moves and attacks now call the same host action publication callback after the host resolves the action and updates action points. This keeps guest snapshots in step through CPU-controlled seats as well as host and guest turns. Cypress coverage exercises both CPU decision paths. Guest disconnect recovery and full-match progression remain outstanding.
 
-**Guest disconnect recovery slice: replace with CPU or end.** The host now gets an in-game choice when an assigned guest disconnects. Replacing the guest changes that seat to CPU control, cancels any pending local choice so the turn loop can proceed, and closes the failed peer. Ending the match cancels pending input, closes the session, and presents the existing restart path. Automatic retry/reconnection with a fresh offer/answer exchange is still outstanding, as are manual browser disconnect checks.
+**Guest disconnect recovery slice: retry, replace with CPU, or end.** The host now gets an in-game choice when an assigned guest disconnects. Retry creates a fresh offer for the same seat and swaps the failed transport in the active host coordinator; the guest can reopen the lobby after its host connection ends, prepare the fresh invite, and join using the host's current seat-assignment snapshot. Replacing the guest changes that seat to CPU control, cancels any pending local choice so the turn loop can proceed, and closes the failed peer. Ending the match cancels pending input, closes the session, and presents the existing restart path. Manual browser disconnect checks remain outstanding.
 
 ### 6. Build coverage and perform manual verification
 

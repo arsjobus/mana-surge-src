@@ -57,6 +57,28 @@ export function setupMultiplayerLobby({ state, onStartMatch = () => {} }) {
     chooser.innerHTML = openSeats.map(seat => `<option value="${seat}">${['Red', 'Blue', 'Green'][seat]}</option>`).join('');
     chooser.disabled = !openSeats.length;
   }
+  async function retryGuest(seat) {
+    const config = state.multiplayer;
+    if (role !== 'host' || !config || !Number.isInteger(seat) || config.roster?.[seat]?.controller !== 'guest') return false;
+    const previous = hostPeers.get(seat);
+    if (previous) { previous.onState = () => {}; previous.close(); }
+    hostPeers.delete(seat);
+    try {
+      const peer = new WebRtcPeer({ role: 'host', matchId: config.matchId, localSeat: config.hostSeat, remoteSeat: seat,
+        onState: value => setStatus(`Seat ${seat + 1}: ${value}`), onError: () => setStatus(`Seat ${seat + 1}: connection error.`) });
+      hostPeers.set(seat, peer);
+      if (coordinatorRef.current?.peers.has(seat)) coordinatorRef.current.replacePeer(seat, peer);
+      else coordinatorRef.current?.addPeer(seat, peer);
+      const offer = await peer.createOffer();
+      setOutput(`Fresh host invite for ${['Red', 'Blue', 'Green'][seat]}`, encode({ v: 1, type: 'offer', matchId: config.matchId, hostSeat: config.hostSeat, seat, score: state.winScore, offer }));
+      setStatus(`Fresh invite ready for ${['Red', 'Blue', 'Green'][seat]}. Ask the same player to prepare an answer and return it here.`);
+      return true;
+    } catch (error) {
+      hostPeers.delete(seat);
+      setStatus(`Could not recreate the connection: ${error.message}`);
+      return false;
+    }
+  }
   document.querySelectorAll('.seat-mode').forEach(select => select.addEventListener('change', refreshInviteSeats));
   refreshInviteSeats();
   document.getElementById('host-create-btn').addEventListener('click', async () => {
@@ -69,6 +91,7 @@ export function setupMultiplayerLobby({ state, onStartMatch = () => {} }) {
     roster = [0, 1, 2].map(seat => ({ seat, controller: seat === hostSeat ? 'host' : openSeats.includes(seat) ? 'guest' : 'cpu' }));
     const matchId = reuse ? state.multiplayer.matchId : crypto.randomUUID();
     state.multiplayer = { role, hostSeat, roster, matchId, peers: hostPeers };
+    state.multiplayer.retryGuest = retryGuest;
     document.getElementById('lobby-start-match').onclick = () => {
       if (openSeats.some(openSeat => !hostPeers.has(openSeat))) return setStatus('Create an invite for each open guest seat, or change that seat to CPU.');
       const notConnected = openSeats.filter(openSeat => hostPeers.get(openSeat)?.channel?.readyState !== 'open');
@@ -89,7 +112,7 @@ export function setupMultiplayerLobby({ state, onStartMatch = () => {} }) {
       const data = decode(document.getElementById('host-answer').value.trim(), 'answer');
       const target = data && hostPeers.get(data.seat);
       if (!data || !target || data.matchId !== matchId) return setStatus('That answer code is invalid, expired, or for another seat.');
-      try { await target.acceptAnswer(data.answer); setStatus(`Seat ${data.seat + 1}: connecting. Invite another open seat or start when ready.`); }
+      try { await target.acceptAnswer(data.answer); setStatus(`Seat ${data.seat + 1}: connecting. The guest will synchronize from the host before acting.`); }
       catch { setStatus('Could not apply answer. Create a fresh invite and try again.'); }
     };
   });
@@ -115,5 +138,5 @@ export function setupMultiplayerLobby({ state, onStartMatch = () => {} }) {
   document.getElementById('lobby-start-match').hidden = false;
   document.getElementById('guest-seat-confirm').hidden = true;
   document.getElementById('guest-join-btn').hidden = true;
-  return { open, close: closeSessions };
+  return { open, close: closeSessions, retryGuest };
 }

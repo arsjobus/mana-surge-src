@@ -23,6 +23,17 @@ export class SessionCoordinator {
     peer.onState = state => this.onPeerState(seat, state);
   }
 
+  replacePeer(seat, peer) {
+    const previous = this.peers.get(seat);
+    if (previous) {
+      this.peers.delete(seat);
+      this.helloReceived.delete(seat);
+      previous.onState = () => {};
+      previous.close();
+    }
+    this.addPeer(seat, peer);
+  }
+
   handleMessage(seat, message) {
     if (message.type === 'hello') {
       if (this.role !== 'host' || message.senderSeat !== null || this.helloReceived.has(seat)) {

@@ -245,6 +245,9 @@ function showHostDisconnected(){
   title.textContent = 'Match ended';
   title.style.color = '#e8c974';
   message.textContent = 'The host disconnected. This match has ended. Restart to return to solo setup.';
+  document.getElementById('guest-disconnect-actions').style.display = 'none';
+  document.getElementById('host-disconnect-actions').style.display = 'flex';
+  document.getElementById('rejoin-host-btn').onclick = () => multiplayerSetup?.reopenLobby?.();
   document.getElementById('victory-modal').style.display = 'flex';
 }
 function showGuestDisconnected({ seat, name }) {
@@ -252,7 +255,8 @@ function showGuestDisconnected({ seat, name }) {
   const title = document.getElementById('victory-title');
   title.textContent = 'Guest disconnected';
   title.style.color = '#e8c974';
-  document.getElementById('victory-text').textContent = `${name} disconnected. Replace this seat with a CPU or end the match.`;
+  document.getElementById('victory-text').textContent = `${name} disconnected. Create a fresh invite for this seat, replace it with a CPU, or end the match.`;
+  document.getElementById('host-disconnect-actions').style.display = 'none';
   document.getElementById('guest-disconnect-actions').style.display = 'flex';
   document.getElementById('victory-modal').style.display = 'flex';
 }
@@ -264,9 +268,20 @@ document.getElementById('replace-guest-btn').addEventListener('click', () => {
   gameState.players[seat].human = false;
   gameState.multiplayerCoordinator?.removePeer(seat);
   document.getElementById('guest-disconnect-actions').style.display = 'none';
+  document.getElementById('host-disconnect-actions').style.display = 'none';
   document.getElementById('victory-modal').style.display = 'none';
   disconnectedGuestSeat = null;
   updateHUD();
+});
+document.getElementById('retry-guest-btn').addEventListener('click', async () => {
+  const seat = disconnectedGuestSeat;
+  if (seat === null || !multiplayerSetup?.retryGuest) return;
+  const ok = await multiplayerSetup.retryGuest(seat);
+  if (!ok) return;
+  document.getElementById('victory-text').textContent = 'Fresh invite created. Send it to the same player, then paste their new answer code in the lobby.';
+  document.getElementById('guest-disconnect-actions').style.display = 'none';
+  disconnectedGuestSeat = null;
+  multiplayerSetup.reopenLobby?.();
 });
 document.getElementById('end-disconnected-match-btn').addEventListener('click', () => {
   const seat = disconnectedGuestSeat;
@@ -277,6 +292,7 @@ document.getElementById('end-disconnected-match-btn').addEventListener('click', 
   document.getElementById('victory-title').textContent = 'Match ended';
   document.getElementById('victory-text').textContent = 'The match ended after a guest disconnected. Restart to return to solo setup.';
   document.getElementById('guest-disconnect-actions').style.display = 'none';
+  document.getElementById('host-disconnect-actions').style.display = 'none';
   document.getElementById('victory-modal').style.display = 'flex';
 });
 hud.setupActionButtons(clearHighlights);
