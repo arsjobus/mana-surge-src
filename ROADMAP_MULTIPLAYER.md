@@ -46,11 +46,13 @@ Protocol details and action inventory: [`src/multiplayer/PROTOCOL.md`](src/multi
 
 ### 2. Refactor human input into transportable actions
 
-- [ ] Refactor `ui/BoardInput.js` and turn-system choice points so local input produces typed action intents rather than resolving shared pending callbacks directly.
-- [ ] Add a local action adapter that preserves existing solo behavior without changing game rules or controls.
-- [ ] Add host validation and action application functions that can be called without DOM or Phaser dependencies where practical.
+- [x] Refactor `ui/BoardInput.js` and turn-system choice points so local input produces typed action intents rather than resolving shared pending callbacks directly.
+- [x] Add a local action adapter that preserves existing solo behavior without changing game rules or controls.
+- [x] Add host validation and action application functions that can be called without DOM or Phaser dependencies where practical.
 - [ ] Ensure CPU-controlled seats still work in solo games and can be selected by the host for unfilled seats in multiplayer.
 - [ ] Confirm simultaneous combat and any random choices are resolved by the host and represented in the shared result, so clients do not independently resolve them.
+
+Implementation: `src/multiplayer/ActionSystem.js` defines serializable intents, keeps local pending input private to an adapter, and validates actions against seat ownership and legal board choices. `src/systems/CombatSystem.js` exposes a deterministic combat outcome that a future host session can include with its accepted action. Host seat configuration and authoritative result broadcasting remain for the multiplayer integration steps.
 
 ### 3. Add a WebRTC transport module
 

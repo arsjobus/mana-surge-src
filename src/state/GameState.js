@@ -10,6 +10,5 @@ export class GameState {
     this.difficulty = difficulty;
     this.winScore = winScore;
     this.humanColorIndex = humanColorIndex;
-    this.pending = null;
   }
 }

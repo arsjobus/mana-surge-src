@@ -11,8 +11,24 @@ export function cpuShouldUseDagger({ players, troops, weights }, pi) {
     (player.mana >= w.daggerClosingManaThreshold && troopCount >= w.daggerClosingTroopThreshold);
 }
 
+/** Deterministic combat outcome that a host can include with its accepted action. */
+export function resolveCombatOutcome({ getStats }, attacker, defender) {
+  const attackerStats = getStats(attacker), defenderStats = getStats(defender);
+  const attackerKills = attackerStats.atk >= defenderStats.def;
+  const defenderKills = defenderStats.atk >= attackerStats.def;
+  return {
+    attackerId: attacker.id,
+    defenderId: defender.id,
+    attackerStats,
+    defenderStats,
+    attackerKills,
+    defenderKills,
+    casualties: [attackerKills ? defender.id : null, defenderKills ? attacker.id : null].filter(id => id !== null)
+  };
+}
+
 export async function performSacrifice(context, pi) {
-  const { players, troops, getTile, isLocked, destroyTroop, waitFor, log, coloredName,
+  const { players, troops, getTile, isLocked, destroyTroop, waitFor, validateIntent, log, coloredName,
     document, axialToPixel, boardX, boardY, burst, updateHUD, winScore, setGameOver, showVictory } = context;
   const player = players()[pi];
   if (player.human) {
@@ -21,10 +37,12 @@ export async function performSacrifice(context, pi) {
     button.disabled = false;
     button.textContent = 'Cancel Sacrifice';
     log(`${coloredName(pi)} channels the Sacrificial Dagger — choose 3 troops to sacrifice.`);
-    const picks = await waitFor('sacrifice', pi);
+    const intent = await waitFor('sacrifice', pi);
     button.disabled = true;
-    if (!picks) return false;
-    for (const troop of picks) await destroyTroop(troop, false);
+    if (intent?.type === 'cancel') return false;
+    const action = validateIntent(intent, 'sacrifice', pi);
+    if (!action) return false;
+    for (const troop of action.troops) await destroyTroop(troop, false);
   } else {
     const picks = [...troops()].filter((troop) => troop.owner === pi).sort((a, b) => {
       const score = (troop) => (getTile(troop.q, troop.r).type === 'plain' ? 0 : 1) + (isLocked(troop) ? 2 : 0);
@@ -42,14 +60,14 @@ export async function performSacrifice(context, pi) {
 }
 
 export async function executeAttack(context, attacker, defender) {
-  const { getStats, log, burst, sleep, destroyTroop } = context;
-  const attackerStats = getStats(attacker), defenderStats = getStats(defender);
-  const attackerKills = attackerStats.atk >= defenderStats.def;
-  const defenderKills = defenderStats.atk >= attackerStats.def;
+  const { log, burst, sleep, destroyTroop } = context;
+  const result = resolveCombatOutcome(context, attacker, defender);
+  const { attackerStats, defenderStats, attackerKills, defenderKills } = result;
   log(`⚔️ ${context.coloredName(attacker.owner)} (${attackerStats.atk}/${attackerStats.def}) attacks ${context.coloredName(defender.owner)} (${defenderStats.atk}/${defenderStats.def}).`);
   burst((attacker.sprite.x + defender.sprite.x) / 2, (attacker.sprite.y + defender.sprite.y) / 2, 0xffffff, 20);
   await sleep(200);
   if (attackerKills) await destroyTroop(defender, false);
   if (defenderKills) await destroyTroop(attacker, false);
   if (!attackerKills && !defenderKills) log('Both troops bounce off harmlessly.');
+  return result;
 }

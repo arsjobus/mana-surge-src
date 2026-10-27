@@ -1,7 +1,7 @@
 import { TOKEN_SCALE } from '../entities/Troop.js';
 
 export function createBoardInput(context) {
-  const { state, scene, getTile, getTroopAt, isLocked, isEmptyTile, neighbors, key, hexDistance, tileInfo, playerColor, playerName, getStats, cssColor } = context;
+  const { state, scene, actions, getTile, getTroopAt, isLocked, isEmptyTile, neighbors, key, hexDistance, tileInfo, playerColor, playerName, getStats, cssColor } = context;
   let highlights = [];
   let selection = null;
   function clearHighlights() {
@@ -34,19 +34,20 @@ export function createBoardInput(context) {
   }
   function invalid(troop) { scene.tweens.add({targets:troop.sprite,x:'+=4',duration:40,yoyo:true,repeat:4}); }
   function onTroopClicked(troop) {
-    const pending=state.pending; if(!pending) return;
-    const {kind,pi}=pending;
-    if(kind==='sacrifice') { if(troop.owner===pi&&!pending.picks.includes(troop)){ pending.picks.push(troop); troop.selSprite.setTint(0xd94fa0).setAlpha(1); if(pending.picks.length>=3){const resolve=pending.resolve,picks=pending.picks;state.pending=null;clearHighlights();resolve(picks);} } return; }
-    if(kind==='move'&&troop.owner===pi&&!isLocked(troop)) { const targets=neighbors(troop.q,troop.r).filter(n=>state.tiles.has(key(n.q,n.r))&&isEmptyTile(n)); if(!targets.length){invalid(troop);return;} clearHighlights();pending.selected=troop;selectTroop(troop);highlightTiles(targets,0x6fffb0); }
+    const pending=actions.current(); if(!pending) return;
+    const {kind,playerIndex}=pending;
+    if(kind==='sacrifice') { if(troop.owner===playerIndex&&!pending.picks.includes(troop)){ pending.picks.push(troop); troop.selSprite.setTint(0xd94fa0).setAlpha(1); if(pending.picks.length>=3){const troopIds=pending.picks.map(pick=>pick.id);clearHighlights();actions.submit({type:'sacrifice',troopIds});} } return; }
+    if(kind==='move'&&troop.owner===playerIndex&&!isLocked(troop)) { const targets=neighbors(troop.q,troop.r).filter(n=>state.tiles.has(key(n.q,n.r))&&isEmptyTile(n)); if(!targets.length){invalid(troop);return;} clearHighlights();pending.selected=troop.id;selectTroop(troop);highlightTiles(targets,0x6fffb0); }
     else if(kind==='attack') {
-      if(pending.selected&&troop.owner!==pi&&hexDistance(pending.selected,troop)===1){const resolve=pending.resolve,attacker=pending.selected;state.pending=null;clearHighlights();resolve({type:'attack',attacker,defender:troop});return;}
-      if(troop.owner===pi&&!isLocked(troop)){const targets=neighbors(troop.q,troop.r).map(n=>getTroopAt(n.q,n.r)).filter(t=>t&&t.owner!==pi);if(!targets.length){invalid(troop);return;}clearHighlights();pending.selected=troop;selectTroop(troop);highlightAttacks(targets);}
+      const selectedTroop=state.troops.find(item=>item.id===pending.selected);
+      if(selectedTroop&&troop.owner!==playerIndex&&hexDistance(selectedTroop,troop)===1){clearHighlights();actions.submit({type:'attack',attackerId:selectedTroop.id,defenderId:troop.id});return;}
+      if(troop.owner===playerIndex&&!isLocked(troop)){const targets=neighbors(troop.q,troop.r).map(n=>getTroopAt(n.q,n.r)).filter(t=>t&&t.owner!==playerIndex);if(!targets.length){invalid(troop);return;}clearHighlights();pending.selected=troop.id;selectTroop(troop);highlightAttacks(targets);}
     }
   }
   function onTileClicked(tile) {
-    const pending=state.pending;if(!pending)return;
-    if(pending.kind==='move'&&pending.selected&&hexDistance(pending.selected,tile)===1&&isEmptyTile(tile)){const resolve=pending.resolve,troop=pending.selected;state.pending=null;clearHighlights();resolve({type:'move',troop,target:{q:tile.q,r:tile.r}});}
-    else if(pending.kind==='spawnChoice'&&pending.options?.some(o=>o.q===tile.q&&o.r===tile.r)){const resolve=pending.resolve;state.pending=null;clearHighlights();resolve({q:tile.q,r:tile.r});}
+    const pending=actions.current();if(!pending)return;
+    if(pending.kind==='move'&&pending.selected){const troop=state.troops.find(item=>item.id===pending.selected);if(troop&&hexDistance(troop,tile)===1&&isEmptyTile(tile)){clearHighlights();actions.submit({type:'move',troopId:troop.id,q:tile.q,r:tile.r});}}
+    else if(pending.kind==='spawnChoice'&&pending.options?.some(o=>o.q===tile.q&&o.r===tile.r)){clearHighlights();actions.submit({type:'spawn',q:tile.q,r:tile.r});}
   }
   function setup() { state.tiles.forEach(tile=>{tile.baseSprite.setInteractive({useHandCursor:false});tile.baseSprite.on('pointerdown',()=>onTileClicked(tile));tile.baseSprite.on('pointerover',()=>showTileInfo(tile,getTroopAt(tile.q,tile.r)));}); }
   return {clearHighlights,highlightSpawnOptions:coords=>highlightTiles(coords,0xffd76a),setup,onTroopClicked,showTileInfo};

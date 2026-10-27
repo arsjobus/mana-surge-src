@@ -39,7 +39,7 @@ export async function endPhase(context, pi) {
 
 /** Run a move phase using rule, AI, and interaction callbacks supplied by the scene. */
 export async function movePhase(context, pi, isPreCombat) {
-  const { players, hasLegalMove, daggerAvailable, document, gameOver, waitFor, performSacrifice,
+  const { players, hasLegalMove, daggerAvailable, document, gameOver, waitFor, validateIntent, performSacrifice,
     updateHUD, getTile, executeMove, sleep, moveDecision, clearHighlights } = context;
   const player = players()[pi];
   const skipButton = document.getElementById('skip-btn');
@@ -55,8 +55,10 @@ export async function movePhase(context, pi, isPreCombat) {
       daggerButton.disabled = !canDagger;
       skipButton.disabled = false;
       skipButton.textContent = 'Skip Move Phase';
-      const action = await waitFor('move', pi);
+      const intent = await waitFor('move', pi);
       skipButton.disabled = true;
+      const action = validateIntent(intent, 'move', pi);
+      if (!action) continue;
       if (action.type === 'dagger') {
         const didSacrifice = await performSacrifice(pi);
         if (didSacrifice) player.actionPoints--;
@@ -105,8 +107,10 @@ export async function combatPhase(context, pi) {
       daggerButton.disabled = !canDagger;
       skipButton.disabled = false;
       skipButton.textContent = 'Skip Combat Phase';
-      const action = await waitFor('attack', pi);
+      const intent = await waitFor('attack', pi);
       skipButton.disabled = true;
+      const action = validateIntent(intent, 'attack', pi);
+      if (!action) continue;
       if (action.type === 'dagger') {
         const didSacrifice = await performSacrifice(pi);
         if (didSacrifice) player.actionPoints--;

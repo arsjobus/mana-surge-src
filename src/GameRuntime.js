@@ -1,4 +1,5 @@
 import { GameState } from './state/GameState.js';
+import { createLocalActionAdapter, validateActionIntent } from './multiplayer/ActionSystem.js';
 import { createBoardInput } from './ui/BoardInput.js';
 import { createGameHUD } from './ui/GameHUD.js';
 import { presentVictory } from './ui/ModalUI.js';
@@ -26,6 +27,7 @@ import { startPhase as runStartPhase, chooseCpuSpawnTile } from './systems/Spawn
 import { playTurn as runTurn, gameLoop as runGameLoop, endPhase as runEndPhase, executeMove as runExecuteMove, movePhase as runMovePhase, combatPhase as runCombatPhase } from './systems/TurnSystem.js';
 
 export const gameState = new GameState();
+const localActions = createLocalActionAdapter();
 
 /* ---------------------------------------------------------------------
    Hex math (pointy-top, axial coordinates)
@@ -70,8 +72,8 @@ function AIW(){ return WEIGHT_PRESETS[gameState.difficulty]; }
 let boardCX = 0, boardCY = 0;
 let boardInput = null;
 const cssColor = hex => '#'+hex.toString(16).padStart(6,'0');
-const hud = createGameHUD({state:gameState,cssColor});
-function inputContext(){return {state:gameState,scene,getTile,getTroopAt,isLocked,isEmptyTile,neighbors,key,hexDistance,tileInfo:TILE_INFO,playerColor:playerColorHex,playerName,getStats,cssColor};}
+const hud = createGameHUD({state:gameState,cssColor,actions:localActions});
+function inputContext(){return {state:gameState,scene,actions:localActions,getTile,getTroopAt,isLocked,isEmptyTile,neighbors,key,hexDistance,tileInfo:TILE_INFO,playerColor:playerColorHex,playerName,getStats,cssColor};}
 function ensureBoardInput(){if(!boardInput)boardInput=createBoardInput(inputContext());return boardInput;}
 function clearHighlights(){ensureBoardInput().clearHighlights();}
 function showTileInfo(tile,troop){ensureBoardInput().showTileInfo(tile,troop);}
@@ -111,8 +113,9 @@ function troopContext(){
 function createTroop(owner,q,r,animate){ return createTroopView(troopContext(),owner,q,r,animate); }
 function setupInitialTroops(){ BoardModel.setupInitialTroops(gameState.players,gameState.tiles,createTroop); }
 
-function waitFor(kind,pi){return new Promise(resolve=>{gameState.pending={kind,pi,resolve,selected:null,options:null,picks:[]};});}
-function ruleContext(){return {players:()=>gameState.players,troops:()=>gameState.troops,tiles:()=>gameState.tiles,countTiles,getTile,isLocked,getStats,isEmptyTile,neighbors,sleep,log,coloredName,cssColor,createTroop,destroyTroop,waitFor,updateHUD,document,hexSize:HEX_SIZE,axialToPixel:(q,r)=>axialToPixel(q,r,HEX_SIZE),boardX,boardY,burst,winScore:gameState.winScore,setGameOver:value=>{gameState.gameOver=value;},showVictory,weights:AIW,cpuChooseSpawnTile:(_pi,options)=>chooseCpuSpawnTile({getTile},options),waitForSpawn:chooseSpawnTileHuman,hasLegalMove,hasLegalAttack,daggerAvailable,gameOver:()=>gameState.gameOver,performSacrifice,executeMove,executeAttack,clearHighlights,moveDecision:(pi,isPreCombat)=>CPU_MOVE_TREE({pi,isPreCombat}),combatDecision:pi=>CPU_COMBAT_TREE({pi})};}
+function waitFor(kind,pi,options=[]){return localActions.request(kind,pi,options);}
+function validateIntent(intent,phase,pi,spawnOptions=[]){return validateActionIntent({troops:()=>gameState.troops,getTroop:id=>gameState.troops.find(troop=>troop.id===id),isLocked,isEmptyTile,neighbors,getTroopAt,daggerAvailable},intent,{phase,playerIndex:pi,spawnOptions});}
+function ruleContext(){return {players:()=>gameState.players,troops:()=>gameState.troops,tiles:()=>gameState.tiles,countTiles,getTile,isLocked,getStats,isEmptyTile,neighbors,sleep,log,coloredName,cssColor,createTroop,destroyTroop,waitFor,validateIntent,updateHUD,document,hexSize:HEX_SIZE,axialToPixel:(q,r)=>axialToPixel(q,r,HEX_SIZE),boardX,boardY,burst,winScore:gameState.winScore,setGameOver:value=>{gameState.gameOver=value;},showVictory,weights:AIW,cpuChooseSpawnTile:(_pi,options)=>chooseCpuSpawnTile({getTile},options),waitForSpawn:chooseSpawnTileHuman,hasLegalMove,hasLegalAttack,daggerAvailable,gameOver:()=>gameState.gameOver,performSacrifice,executeMove,executeAttack,clearHighlights,moveDecision:(pi,isPreCombat)=>CPU_MOVE_TREE({pi,isPreCombat}),combatDecision:pi=>CPU_COMBAT_TREE({pi})};}
 function daggerAvailable(pi){return combatDaggerAvailable({countTiles,troops:()=>gameState.troops},pi);}
 function cpuShouldUseDagger(pi){return aiShouldUseDagger({players:gameState.players,troops:gameState.troops,weights:AIW()},pi);}
 
@@ -158,12 +161,11 @@ async function startPhase(pi){
   return runStartPhase(ruleContext(),pi);
 }
 
-function chooseSpawnTileHuman(options){
+function chooseSpawnTileHuman(options,pi=gameState.currentPlayerIndex){
   document.getElementById('skip-btn').disabled = true;
-  const promise = waitFor('spawnChoice', gameState.currentPlayerIndex);
-  gameState.pending.options = options;
+  const promise = waitFor('spawnChoice', pi, options);
   highlightSpawnOptions(options);
-  return promise.then(res=>{ clearHighlights(); return res; });
+  return promise.then(intent=>{ clearHighlights(); return validateIntent(intent,'spawn',pi,options)?.coord || options[0]; });
 }
 
 function cpuChooseSpawnTile(pi, options){
