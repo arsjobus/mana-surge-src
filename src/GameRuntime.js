@@ -176,9 +176,9 @@ function requestGuestSpawn(tile){
 }
 function startGuestMovePhase(){
   const session = gameState.session;
-  if (session?.role !== 'guest' || session.phase !== 'move1' || session.activeSeat !== session.localSeat || guestMovePhaseRunning || gameState.gameOver) return;
+  if (session?.role !== 'guest' || !['move1', 'move2'].includes(session.phase) || session.activeSeat !== session.localSeat || guestMovePhaseRunning || gameState.gameOver) return;
   guestMovePhaseRunning = true;
-  runMovePhase(ruleContext(), session.localSeat, true).catch(error => console.error('Guest move phase failed:', error)).finally(() => { guestMovePhaseRunning = false; });
+  runMovePhase(ruleContext(), session.localSeat, session.phase === 'move1').catch(error => console.error('Guest move phase failed:', error)).finally(() => { guestMovePhaseRunning = false; });
 }
 function startGuestSpawnPhase(){
   const session = gameState.session;
@@ -354,9 +354,9 @@ const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMa
           const phase = gameState.session.phase;
           const intent = action.type === 'spawn' && phase === 'spawn'
             ? { type: 'spawn', q: action.tile.q, r: action.tile.r }
-            : action.type === 'move' && phase === 'move1'
+            : action.type === 'move' && ['move1', 'move2'].includes(phase)
               ? { type: 'move', troopId: action.troopId, q: action.to.q, r: action.to.r }
-              : action.type === 'pass' && phase === 'move1' ? { type: 'skip' } : null;
+              : action.type === 'pass' && ['move1', 'move2'].includes(phase) ? { type: 'skip' } : null;
           const pendingKind = phase === 'spawn' ? 'spawnChoice' : 'move';
           const pending = localActions.current();
           const checked = intent && validateIntent(intent, phase === 'spawn' ? 'spawn' : 'move', seat, pending?.options || []);
@@ -365,7 +365,7 @@ const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMa
           if (message.rateLimited) rejection = 'RATE_LIMITED';
           else if (gameState.session.roster?.[seat]?.controller !== 'guest') rejection = 'NOT_YOUR_SEAT';
           else if (gameState.session.activeSeat !== seat || pending?.playerIndex !== seat || pending?.kind !== pendingKind) rejection = 'NOT_YOUR_TURN';
-          else if (!['move1', 'spawn'].includes(phase)) rejection = 'WRONG_PHASE';
+          else if (!['move1', 'move2', 'spawn'].includes(phase)) rejection = 'WRONG_PHASE';
           else if (!checked) rejection = 'ILLEGAL_ACTION';
           if (rejection) coordinator.sendTo(seat, 'actionRejected', { requestSeq, code: rejection });
           else {

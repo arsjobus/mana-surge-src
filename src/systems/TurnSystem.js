@@ -60,7 +60,7 @@ export async function movePhase(context, pi, isPreCombat) {
       skipButton.disabled = true;
       const action = validateIntent(intent, 'move', pi);
       if (!action) continue;
-      if (isPreCombat && context.multiplayerRole === 'guest') {
+      if (context.multiplayerRole === 'guest') {
         if (action.type === 'skip') {
           await requestGuestMove?.({ type: 'pass' });
           break;
@@ -78,13 +78,13 @@ export async function movePhase(context, pi, isPreCombat) {
         continue;
       }
       if (action.type === 'skip') {
-        if (isPreCombat) actionApplied?.({ type: 'pass' });
+        actionApplied?.({ type: 'pass' });
         break;
       }
       await executeMove(action.troop, getTile(action.target.q, action.target.r));
       player.actionPoints--;
       updateHUD();
-      if (isPreCombat) actionApplied?.({ type: 'move', troopId: action.troop.id, to: action.target });
+      actionApplied?.({ type: 'move', troopId: action.troop.id, to: action.target });
     } else {
       await sleep(500);
       const decision = moveDecision(pi, isPreCombat);

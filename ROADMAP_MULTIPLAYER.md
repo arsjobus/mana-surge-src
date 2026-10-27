@@ -99,6 +99,8 @@ The guest host-disconnect path is now connected to a match-ended modal: it stops
 
 **Turn integration slice completed: guest spawning in Start Phase.** A guest can choose among its currently open spawn tiles and send the tile as an intent. The host accepts it only while that seat owns the active Start Phase spawn choice, checks it against the host's current spawn options, and applies it through the existing turn loop. The host publishes an accepted snapshot after every spawn, including automatic and CPU spawns, so the guest never creates authoritative troops locally. Move Phase II, combat, dagger/sacrifice, CPU action publication, disconnect recovery, and full match progression remain outstanding. The next integration slice is Move Phase II, then combat.
 
+**Turn integration slice completed: guest moves and passes in Move Phase II.** The guest turn runner now starts for either move phase, requests moves and passes through the same input wait as Move Phase I, and waits for each host-approved snapshot before continuing. The host accepts those requests only while that guest owns the active Move Phase II decision, validates moves against the authoritative board, applies them through the existing turn loop, and broadcasts accepted snapshots. Focused Cypress coverage exercises Move Phase II authorization and ordered snapshot acceptance. Combat and dagger/sacrifice integration remain outstanding; the next slice is guest combat actions.
+
 ### 6. Build coverage and perform manual verification
 
 - [x] Add unit or browser tests for protocol validation, host action authorization, sequence handling, and guest rejection paths.
