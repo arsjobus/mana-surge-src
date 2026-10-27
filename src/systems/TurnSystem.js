@@ -120,7 +120,7 @@ export async function movePhase(context, pi, isPreCombat) {
 
 /** Run combat actions until the player passes or runs out of action points. */
 export async function combatPhase(context, pi) {
-  const { players, troops, hasLegalAttack, daggerAvailable, document, gameOver, waitFor, performSacrifice, setDecision,
+  const { players, troops, hasLegalAttack, daggerAvailable, document, gameOver, waitFor, validateIntent, performSacrifice, setDecision,
     updateHUD, executeAttack, sleep, combatDecision, clearHighlights, multiplayerRole, requestGuestMove, actionApplied } = context;
   const player = players()[pi];
   setDecision?.(pi, 'combat');

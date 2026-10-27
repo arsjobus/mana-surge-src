@@ -60,15 +60,19 @@
       </div>
       <div id="difficulty-label">Victory Threshold: <span id="winscore-value">10</span> Mana</div>
       <input type="range" id="winscore-slider" min="10" max="50" step="10" value="10">
-      <button class="game-btn primary" id="start-btn">Begin the Surge</button>
-      <button class="game-btn" id="multiplayer-btn">Play Multiplayer</button>
+      <div id="start-actions">
+        <button class="game-btn primary" id="start-btn">Play</button>
+        <button class="game-btn" id="multiplayer-btn">Multiplayer</button>
+      </div>
+      <hr id="start-actions-divider">
       <button class="game-btn" id="rules-btn">How to Play</button>
       <button class="game-btn" id="credits-btn">Credits</button>
     </div>
 
     <div class="modal-overlay" id="multiplayer-modal" style="display:none;">
-      <div class="modal-shell"><div class="modal-box lobby-box">
+      <div class="modal-shell">
         <button class="modal-close-x" id="lobby-close" aria-label="Close">&times;</button>
+        <div class="modal-box lobby-box">
         <h2>Private Multiplayer</h2>
         <p>Invite codes grant access to a seat. Share them only with intended players. A signaling relay automatically exchanges connection setup data; gameplay remains peer-to-peer. Direct connections may fail on some networks without a TURN relay.</p>
         <div class="lobby-columns">
