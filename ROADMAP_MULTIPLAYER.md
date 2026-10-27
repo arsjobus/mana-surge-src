@@ -35,12 +35,14 @@ Add networking as a separate transport/session layer. Keep WebRTC objects, conne
 
 ### 1. Define the session protocol and rules boundary
 
-- [ ] Inventory every human decision requested during spawn, movement, combat, dagger/sacrifice, skip, and phase progression; identify the smallest action messages needed to represent each choice.
-- [ ] Define a versioned JSON message envelope with match ID, sender seat, monotonically increasing sequence number, message type, and bounded payload.
-- [ ] Define host-to-guest and guest-to-host messages, including hello/seat assignment, action request, accepted action/state update, rejection, heartbeat, disconnect, and protocol-version mismatch.
-- [ ] Specify validation for sender seat, current phase, turn ownership, legal moves/targets, payload shape, message size, and replayed/out-of-order sequence numbers.
-- [ ] Decide how guests stay synchronized: begin with host-approved action/state snapshots at phase or action boundaries; add hashes/checkpoints to detect divergence.
-- [ ] Keep private host/guest display state separate from shared match state. Do not include pending promise resolvers, Phaser objects, DOM nodes, or AI internals in network snapshots.
+- [x] Inventory every human decision requested during spawn, movement, combat, dagger/sacrifice, skip, and phase progression; identify the smallest action messages needed to represent each choice.
+- [x] Define a versioned JSON message envelope with match ID, sender seat, monotonically increasing sequence number, message type, and bounded payload.
+- [x] Define host-to-guest and guest-to-host messages, including hello/seat assignment, action request, accepted action/state update, rejection, heartbeat, disconnect, and protocol-version mismatch.
+- [x] Specify validation for sender seat, current phase, turn ownership, legal moves/targets, payload shape, message size, and replayed/out-of-order sequence numbers.
+- [x] Decide how guests stay synchronized: begin with host-approved action/state snapshots at phase or action boundaries; add hashes/checkpoints to detect divergence.
+- [x] Keep private host/guest display state separate from shared match state. Do not include pending promise resolvers, Phaser objects, DOM nodes, or AI internals in network snapshots.
+
+Protocol details and action inventory: [`src/multiplayer/PROTOCOL.md`](src/multiplayer/PROTOCOL.md).
 
 ### 2. Refactor human input into transportable actions
 
