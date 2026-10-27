@@ -15,7 +15,7 @@ All troop references use positive integer `id` values, never object references o
 | Cancel dagger selection | `{ type: 'cancelSacrifice' }` | Host is waiting for a sacrifice choice for this seat; costs no action point. |
 | Pass the optional action phase | `{ type: 'pass' }` | Host is waiting for a move or attack choice; ends that phase's remaining optional actions. |
 
-The current UI gathers three troop clicks, but the wire action is atomic so incomplete selections are never accepted. Guests cannot advance phases, grant mana, resolve combat/randomness, declare victory, or choose CPU actions.
+The current UI gathers three troop clicks, but the wire action is atomic so incomplete selections are never accepted. Guests cannot advance phases, grant mana, resolve combat/randomness, declare victory, or choose CPU actions. Host seat setup uses a roster of `host`, `guest`, and `cpu` controllers; any seat not assigned to a guest defaults to CPU, so the host can keep unfilled seats running as CPUs.
 
 ## Envelope and message types
 
@@ -39,7 +39,7 @@ V1 types and payloads:
 - `hello`: guest to host, null seat, `{ supportedVersions: [1] }`.
 - `seatAssignment`: host to guest, `{ seat, snapshot }`.
 - `actionRequest`: guest to host; payload is one action in the table above.
-- `actionAccepted`: host to guest, `{ action, stateVersion, event, snapshot }`. Host increments version once per accepted action; snapshot is mandatory in v1, including at phase boundaries.
+- `actionAccepted`: host to guest, `{ action, stateVersion, event, snapshot }`. Host increments version once per accepted action; snapshot is mandatory in v1, including at phase boundaries. An attack event includes the host's resolved combat result (`attackerStats`, `defenderStats`, `attackerKills`, `defenderKills`, and casualty IDs); clients apply this event/snapshot and never roll or recalculate combat locally.
 - `actionRejected`: host to guest, `{ requestSeq, code }`; codes: `NOT_YOUR_SEAT`, `NOT_YOUR_TURN`, `WRONG_PHASE`, `ILLEGAL_ACTION`, `STALE_STATE`, `RATE_LIMITED`. Rejection never mutates state or consumes an action point.
 - `snapshot`: host to guest, `{ stateVersion, state, hash }`.
 - `heartbeat` and `heartbeatAck`: either direction, `{ timestamp }`; sender-local integer timestamp is informational only.
@@ -61,5 +61,7 @@ A snapshot is a canonical data projection, not serialization of `GameState` or t
 Exclude pending interaction promises/resolvers, selected sprites, Phaser objects, DOM/UI state, CPU behavior-tree state, AI weights, local connection state, signaling codes, and private browser data. Guests accept snapshots only from the host, replace the replicated shared model from a valid newer snapshot, and stop sending actions until synchronized. Host remains authoritative if a guest view diverges.
 
 In v1 the host sends the accepted action/event and resulting snapshot in order for every action. A guest applies only the next version and verifies its hash; a version gap or hash mismatch requires a fresh snapshot before play resumes. Never replay a locally queued guest action after resynchronization; the player submits again against the current phase.
+
+CPU decisions, including mistake-chance choices, run only on the host. The host serializes each selected CPU action through the same accepted-action/event path as a human action. Combat itself has no random roll: `resolveCombatOutcome` computes both sides' kills from the host's current stats in one simultaneous result, which is included in the attack event and resulting snapshot.
 
 Game-specific validation and application live above transport. WebRTC delivers bounded protocol messages but does not decide whether an action is legal.
