@@ -10,6 +10,9 @@ import { WEIGHT_PRESETS } from './data/aiWeights.js';
 import * as BoardModel from './board/BoardModel.js';
 import { buildTextures, renderBoard as drawBoard } from './board/BoardRenderer.js';
 import { TOKEN_SCALE, createTroop as createTroopView, destroyTroop as destroyTroopView, refreshLockVisual as refreshTroopLockVisual, burst as troopBurst, moveSpritesTo as moveTroopSprites } from './entities/Troop.js';
+import { daggerAvailable as combatDaggerAvailable, cpuShouldUseDagger as combatCpuShouldUseDagger, performSacrifice as resolveSacrifice, executeAttack as resolveAttack } from './systems/CombatSystem.js';
+import { startPhase as runStartPhase, chooseCpuSpawnTile } from './systems/SpawnSystem.js';
+import { playTurn as runTurn, gameLoop as runGameLoop } from './systems/TurnSystem.js';
 
 
 /* ---------------------------------------------------------------------
@@ -218,20 +221,26 @@ function waitFor(kind, pi){
   return new Promise(resolve=>{ pending = {kind, pi, resolve, selected:null, options:null, picks:[]}; });
 }
 
+function ruleContext(){
+  return {
+    players:()=>players, troops:()=>troops, tiles:()=>tiles, countTiles,
+    getTile, isLocked, getStats, isEmptyTile, neighbors, sleep, log, coloredName, cssColor,
+    createTroop, destroyTroop, waitFor, updateHUD, document, axialToPixel:(q,r)=>axialToPixel(q,r,HEX_SIZE),
+    boardX, boardY, burst, winScore, setGameOver:(value)=>{ gameOver=value; },
+    showVictory, weights:AIW, cpuChooseSpawnTile:(_pi, options)=>chooseCpuSpawnTile({getTile},options),
+    waitForSpawn:chooseSpawnTileHuman
+  };
+}
+
 function daggerAvailable(pi){
-  return countTiles(pi,'dagger')>0 && troops.filter(t=>t.owner===pi).length>=3;
+  return combatDaggerAvailable({countTiles, troops:()=>troops},pi);
 }
 
 // The CPU should treat the Sacrificial Dagger as a late-game/surplus finishing
 // move, not an early priority: only reach for it once it has a healthy troop
 // surplus to spare, or as a genuine closing push when already near victory.
 function cpuShouldUseDagger(pi){
-  const w = AIW();
-  const p = players[pi];
-  const myTroopCount = troops.filter(t=>t.owner===pi).length;
-  const hasSurplus = myTroopCount >= w.daggerSurplusThreshold;              // plenty of troops to spare
-  const closingPush = p.mana >= w.daggerClosingManaThreshold && myTroopCount >= w.daggerClosingTroopThreshold; // near-victory finishing move
-  return hasSurplus || closingPush;
+  return combatCpuShouldUseDagger({players:()=>players,troops:()=>troops,weights:AIW},pi);
 }
 
 function onTroopClicked(troop){
@@ -355,30 +364,7 @@ function log(msg){
    Game flow
 --------------------------------------------------------------------- */
 async function startPhase(pi){
-  const p = players[pi];
-  p.actionPoints = 1 + countTiles(pi,'extra_action');
-  p.maxActionPointsSeen = Math.max(p.maxActionPointsSeen||1, p.actionPoints);
-  updateHUD();
-  const spawnsAllowed = 1 + countTiles(pi,'extra_spawn');
-  let spawned=0;
-  for(let i=0;i<spawnsAllowed;i++){
-    if(troops.filter(t=>t.owner===pi).length>=15){ log(`${p.name} has no troops left in reserve.`); break; }
-    const options = neighbors(p.spawner.q,p.spawner.r).filter(n=>tiles.has(key(n.q,n.r)) && isEmptyTile(n));
-    if(options.length===0){ log(`${p.name}'s spawner has no open ground.`); break; }
-    let choice;
-    if(options.length===1){ choice = options[0]; }
-    else if(p.human){
-      choice = await chooseSpawnTileHuman(options);
-    } else {
-      choice = cpuChooseSpawnTile(pi, options);
-      await sleep(280);
-    }
-    createTroop(pi, choice.q, choice.r, true);
-    spawned++;
-    await sleep(200);
-  }
-  if(spawned>0) log(`${coloredName(pi)} spawns ${spawned} troop${spawned>1?'s':''}.`);
-  updateHUD();
+  return runStartPhase(ruleContext(),pi);
 }
 
 function chooseSpawnTileHuman(options){
@@ -390,43 +376,11 @@ function chooseSpawnTileHuman(options){
 }
 
 function cpuChooseSpawnTile(pi, options){
-  const order = {extra_action:5, extra_spawn:4, atk_plus:3, def_plus:2, plain:1, atk_minus:0, thorns:-5};
-  let best = options[0], bestScore=-999;
-  options.forEach(o=>{
-    const tp = getTile(o.q,o.r).type;
-    const s = order[tp] ?? 1;
-    if(s>bestScore){ bestScore=s; best=o; }
-  });
-  return best;
+  return chooseCpuSpawnTile({getTile},options);
 }
 
 async function performSacrifice(pi){
-  const p = players[pi];
-  if(p.human){
-    document.getElementById('dagger-btn').disabled = true;
-    const btn = document.getElementById('skip-btn');
-    btn.disabled = false; btn.textContent = 'Cancel Sacrifice';
-    log(`${coloredName(pi)} channels the Sacrificial Dagger — choose 3 troops to sacrifice.`);
-    const picks = await waitFor('sacrifice', pi);
-    btn.disabled = true;
-    if(!picks) return false; // cancelled
-    for(const tr of picks){ await destroyTroop(tr, false); }
-  } else {
-    const mine = troops.filter(t=>t.owner===pi);
-    const sorted = [...mine].sort((a,b)=>{
-      const score = t => (getTile(t.q,t.r).type==='plain'?0:1) + (isLocked(t)?2:0);
-      return score(a)-score(b);
-    });
-    const picks = sorted.slice(0,3);
-    for(const tr of picks){ await destroyTroop(tr, false); }
-  }
-  p.mana++;
-  log(`🗡️ ${coloredName(pi)} sacrifices 3 troops for 1 mana. (${p.mana}/10)`);
-  const px = axialToPixel(0,0,HEX_SIZE);
-  burst(boardX(px.x), boardY(px.y), 0xc9b8ff, 24);
-  updateHUD();
-  if(p.mana>=winScore){ gameOver=true; showVictory(pi); }
-  return true;
+  return resolveSacrifice(ruleContext(),pi);
 }
 
 /* ---------------------------------------------------------------------
@@ -656,16 +610,7 @@ async function executeMove(troop, targetTile){
 }
 
 async function executeAttack(attacker, defender){
-  const aS = getStats(attacker), dS = getStats(defender);
-  const aKills = aS.atk >= dS.def;
-  const dKills = dS.atk >= aS.def;
-  log(`⚔️ ${coloredName(attacker.owner)} (${aS.atk}/${aS.def}) attacks ${coloredName(defender.owner)} (${dS.atk}/${dS.def}).`);
-  const midX = (attacker.sprite.x+defender.sprite.x)/2, midY = (attacker.sprite.y+defender.sprite.y)/2;
-  burst(midX, midY, 0xffffff, 20);
-  await sleep(200);
-  if(aKills) await destroyTroop(defender, false);
-  if(dKills) await destroyTroop(attacker, false);
-  if(!aKills && !dKills) log(`Both troops bounce off harmlessly.`);
+  return resolveAttack(ruleContext(),attacker,defender);
 }
 
 function coloredName(pi){
@@ -834,27 +779,10 @@ function cpuChooseAttack(pi){
    Main loop
 --------------------------------------------------------------------- */
 async function playTurn(pi){
-  const p = players[pi];
-  log(`<b style="color:${cssColor(p.colorHex)}">— ${p.name}'s Turn —</b>`);
-  setPhaseUI(pi,'Start Phase');
-  await startPhase(pi); if(gameOver) return;
-  setPhaseUI(pi,'Move Phase I');
-  await movePhase(pi, true); if(gameOver) return;
-  setPhaseUI(pi,'Combat Phase');
-  await combatPhase(pi); if(gameOver) return;
-  setPhaseUI(pi,'Move Phase II');
-  await movePhase(pi, false); if(gameOver) return;
-  setPhaseUI(pi,'End Phase');
-  await endPhase(pi);
+return runTurn({...ruleContext(),setPhaseUI,startPhase,movePhase,combatPhase,endPhase,isGameOver:()=>gameOver},pi);
 }
 async function gameLoop(){
-  while(!gameOver){
-    await playTurn(currentPlayerIndex);
-    if(gameOver) break;
-    currentPlayerIndex = (currentPlayerIndex+1)%players.length;
-    updateHUD();
-    await sleep(300);
-  }
+  return runGameLoop({...ruleContext(),currentPlayerIndex:()=>currentPlayerIndex,setCurrentPlayerIndex:(value)=>{currentPlayerIndex=value;},playTurn,isGameOver:()=>gameOver});
 }
 
 function showVictory(pi){
