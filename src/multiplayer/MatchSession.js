@@ -2,7 +2,7 @@ import { isValidActionPayload } from './MessageCodec.js';
 
 /** Game-layer authority and synchronization state, independent of WebRTC. */
 export class MatchSession {
-  constructor({ role, localSeat, hostSeat, matchId, roster, sendTo = () => {}, broadcast = () => {}, onStatus = () => {}, onEnd = () => {} }) {
+  constructor({ role, localSeat, hostSeat, matchId, roster, sendTo = () => {}, broadcast = () => {}, onStatus = () => {}, onEnd = () => {}, onGuestDisconnect = () => {} }) {
     if (!['host', 'guest'].includes(role) || !Number.isInteger(localSeat) || !Number.isInteger(hostSeat)) throw new TypeError('Invalid match session');
     this.role = role;
     this.localSeat = localSeat;
@@ -13,6 +13,7 @@ export class MatchSession {
     this.broadcast = broadcast;
     this.onStatus = onStatus;
     this.onEnd = onEnd;
+    this.onGuestDisconnect = onGuestDisconnect;
     this.stateVersion = 0;
     this.activeSeat = hostSeat;
     this.phase = 'start';
@@ -145,7 +146,24 @@ export class MatchSession {
       this.onEnd({ reason: 'hostDisconnected' });
     } else if (this.role === 'host' && this.roster?.[seat]?.controller === 'guest') {
       this.onStatus(`${this.seatName(seat)} disconnected. Retry, replace with CPU, or end the match.`);
+      this.onGuestDisconnect({ seat, name: this.seatName(seat) });
     }
+  }
+
+  replaceDisconnectedGuest(seat) {
+    if (this.role !== 'host' || this.ended || this.roster?.[seat]?.controller !== 'guest') return false;
+    this.roster[seat] = { ...this.roster[seat], controller: 'cpu' };
+    this.onStatus(`${this.seatName(seat)} is now controlled by the CPU.`);
+    return true;
+  }
+
+  endForGuestDisconnect(seat) {
+    if (this.role !== 'host' || this.ended || this.roster?.[seat]?.controller !== 'guest') return false;
+    this.ended = true;
+    this.pendingRequest = null;
+    this.onStatus('The match ended after a guest disconnected.');
+    this.onEnd({ reason: 'guestDisconnected', seat });
+    return true;
   }
 
   end() { this.ended = true; this.pendingRequest = null; }

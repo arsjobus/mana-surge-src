@@ -93,6 +93,7 @@ export async function movePhase(context, pi, isPreCombat) {
         await executeMove(decision.troop, getTile(decision.target.q, decision.target.r));
         player.actionPoints--;
         updateHUD();
+        actionApplied?.({ type: 'move', troopId: decision.troop.id, to: decision.target });
         await sleep(250);
       } else if (decision.type === 'sacrifice') {
         const didSacrifice = await performSacrifice(pi);
@@ -158,6 +159,7 @@ export async function combatPhase(context, pi) {
         await executeAttack(decision.attacker, decision.defender);
         player.actionPoints--;
         updateHUD();
+        actionApplied?.({ type: 'attack', attackerId: decision.attacker.id, defenderId: decision.defender.id });
         await sleep(300);
       } else if (decision.type === 'sacrifice') {
         const didSacrifice = await performSacrifice(pi);

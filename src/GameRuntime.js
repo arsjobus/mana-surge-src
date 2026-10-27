@@ -43,6 +43,7 @@ let pendingGuestMoveResolve = null;
 let guestMovePhaseRunning = false;
 let guestSpawnPhaseRunning = false;
 let guestCombatPhaseRunning = false;
+let disconnectedGuestSeat = null;
 
 /* ---------------------------------------------------------------------
    Tile type descriptions
@@ -246,6 +247,38 @@ function showHostDisconnected(){
   message.textContent = 'The host disconnected. This match has ended. Restart to return to solo setup.';
   document.getElementById('victory-modal').style.display = 'flex';
 }
+function showGuestDisconnected({ seat, name }) {
+  disconnectedGuestSeat = seat;
+  const title = document.getElementById('victory-title');
+  title.textContent = 'Guest disconnected';
+  title.style.color = '#e8c974';
+  document.getElementById('victory-text').textContent = `${name} disconnected. Replace this seat with a CPU or end the match.`;
+  document.getElementById('guest-disconnect-actions').style.display = 'flex';
+  document.getElementById('victory-modal').style.display = 'flex';
+}
+document.getElementById('replace-guest-btn').addEventListener('click', () => {
+  const seat = disconnectedGuestSeat;
+  const session = gameState.session;
+  if (seat === null || !session?.replaceDisconnectedGuest(seat)) return;
+  localActions.cancel();
+  gameState.players[seat].human = false;
+  gameState.multiplayerCoordinator?.removePeer(seat);
+  document.getElementById('guest-disconnect-actions').style.display = 'none';
+  document.getElementById('victory-modal').style.display = 'none';
+  disconnectedGuestSeat = null;
+  updateHUD();
+});
+document.getElementById('end-disconnected-match-btn').addEventListener('click', () => {
+  const seat = disconnectedGuestSeat;
+  if (seat === null || !gameState.session?.endForGuestDisconnect(seat)) return;
+  gameState.gameOver = true;
+  localActions.cancel();
+  gameState.multiplayerCoordinator?.close();
+  document.getElementById('victory-title').textContent = 'Match ended';
+  document.getElementById('victory-text').textContent = 'The match ended after a guest disconnected. Restart to return to solo setup.';
+  document.getElementById('guest-disconnect-actions').style.display = 'none';
+  document.getElementById('victory-modal').style.display = 'flex';
+});
 hud.setupActionButtons(clearHighlights);
 
 /* ---------------------------------------------------------------------
@@ -428,7 +461,8 @@ const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMa
         sendTo: (seat, type, payload) => coordinator.sendTo(seat, type, payload),
         broadcast: (type, payload) => coordinator.broadcast(type, payload),
         onStatus: message => { const el = document.getElementById('phase-text'); if (el) el.textContent = message; },
-        onEnd: result => { if (result.reason === 'hostDisconnected') showHostDisconnected(); }
+        onEnd: result => { if (result.reason === 'hostDisconnected') showHostDisconnected(); },
+        onGuestDisconnect: showGuestDisconnected
       });
       if (role === 'guest' && peer.channel?.readyState === 'open') coordinator.startHandshake(hostSeat);
     } else {

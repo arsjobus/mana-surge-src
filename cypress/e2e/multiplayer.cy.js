@@ -1,8 +1,32 @@
 import { MatchSession } from '../../src/multiplayer/MatchSession.js';
 import { decodeMessage, encodeMessage } from '../../src/multiplayer/MessageCodec.js';
 import { SessionCoordinator } from '../../src/multiplayer/SessionCoordinator.js';
+import { combatPhase, movePhase } from '../../src/systems/TurnSystem.js';
 
 describe('multiplayer protocol and host authorization', () => {
+  it('publishes CPU moves and attacks through the host action callback', async () => {
+    const player = { human: false, actionPoints: 1 };
+    const published = [];
+    const context = {
+      players: () => [player], hasLegalMove: () => true, daggerAvailable: () => false,
+      document: { getElementById: () => ({ style: {}, disabled: false, textContent: '' }) },
+      gameOver: () => false, setDecision: () => {}, updateHUD: () => {},
+      getTile: (q, r) => ({ q, r }), executeMove: async () => {}, sleep: async () => {},
+      moveDecision: () => ({ type: 'move', troop: { id: 12 }, target: { q: 1, r: -1 } }),
+      clearHighlights: () => {}, actionApplied: action => published.push(action)
+    };
+
+    await movePhase(context, 0, true);
+    expect(published).to.deep.equal([{ type: 'move', troopId: 12, to: { q: 1, r: -1 } }]);
+
+    player.actionPoints = 1;
+    context.hasLegalAttack = () => true;
+    context.executeAttack = async () => {};
+    context.combatDecision = () => ({ type: 'attack', attacker: { id: 12 }, defender: { id: 19 } });
+    await combatPhase(context, 0);
+    expect(published[1]).to.deep.equal({ type: 'attack', attackerId: 12, defenderId: 19 });
+  });
+
   it('round trips valid protocol messages and rejects malformed or mismatched messages', () => {
     const message = {
       v: 1,

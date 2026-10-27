@@ -105,6 +105,10 @@ The guest host-disconnect path is now connected to a match-ended modal: it stops
 
 **Turn integration slice completed: guest dagger/sacrifice actions.** Guests can select three owned troops and submit the atomic sacrifice intent while the host is waiting at that guest's sacrifice choice. The host validates the IDs and dagger availability, applies troop removal, mana, and the action-point cost through the existing turn loop, then publishes the accepted snapshot. Cancelling the selection is also relayed so both host and guest resume their turn loops. CPU sacrifices and local host sacrifices now publish accepted updates as well. CPU action publication beyond sacrifices, guest disconnect recovery, and complete match progression remain outstanding.
 
+**Turn integration slice completed: CPU move and attack publication.** CPU moves and attacks now call the same host action publication callback after the host resolves the action and updates action points. This keeps guest snapshots in step through CPU-controlled seats as well as host and guest turns. Cypress coverage exercises both CPU decision paths. Guest disconnect recovery and full-match progression remain outstanding.
+
+**Guest disconnect recovery slice: replace with CPU or end.** The host now gets an in-game choice when an assigned guest disconnects. Replacing the guest changes that seat to CPU control, cancels any pending local choice so the turn loop can proceed, and closes the failed peer. Ending the match cancels pending input, closes the session, and presents the existing restart path. Automatic retry/reconnection with a fresh offer/answer exchange is still outstanding, as are manual browser disconnect checks.
+
 ### 6. Build coverage and perform manual verification
 
 - [x] Add unit or browser tests for protocol validation, host action authorization, sequence handling, and guest rejection paths.
