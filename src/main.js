@@ -12,7 +12,7 @@ import { buildTextures, renderBoard as drawBoard } from './board/BoardRenderer.j
 import { TOKEN_SCALE, createTroop as createTroopView, destroyTroop as destroyTroopView, refreshLockVisual as refreshTroopLockVisual, burst as troopBurst, moveSpritesTo as moveTroopSprites } from './entities/Troop.js';
 import { daggerAvailable as combatDaggerAvailable, cpuShouldUseDagger as combatCpuShouldUseDagger, performSacrifice as resolveSacrifice, executeAttack as resolveAttack } from './systems/CombatSystem.js';
 import { startPhase as runStartPhase, chooseCpuSpawnTile } from './systems/SpawnSystem.js';
-import { playTurn as runTurn, gameLoop as runGameLoop } from './systems/TurnSystem.js';
+import { playTurn as runTurn, gameLoop as runGameLoop, endPhase as runEndPhase, executeMove as runExecuteMove } from './systems/TurnSystem.js';
 
 
 /* ---------------------------------------------------------------------
@@ -576,37 +576,11 @@ async function combatPhase(pi){
 }
 
 async function endPhase(pi){
-  const p = players[pi];
-  const manaTile = getTile(0,0);
-  if(manaTile.occupantId!=null){
-    const troop = troops.find(t=>t.id===manaTile.occupantId);
-    if(troop && troop.owner===pi){
-      p.mana++;
-      log(`✨ ${coloredName(pi)} channels a Mana Point! (${p.mana}/10)`);
-      const px = axialToPixel(0,0,HEX_SIZE);
-      burst(boardX(px.x), boardY(px.y), 0xffd76a, 30);
-      updateHUD();
-      if(p.mana>=winScore){ gameOver=true; showVictory(pi); }
-    }
-  }
+  return runEndPhase(ruleContext(), pi);
 }
 
 async function executeMove(troop, targetTile){
-  const oldTile = getTile(troop.q,troop.r);
-  oldTile.occupantId=null;
-  troop.q = targetTile.q; troop.r = targetTile.r;
-  const px = axialToPixel(targetTile.q, targetTile.r, HEX_SIZE);
-  await moveSpritesTo(troop, boardX(px.x), boardY(px.y));
-  if(targetTile.type==='thorns'){
-    log(`💀 ${coloredName(troop.owner)}'s troop is impaled by thorns!`);
-    await destroyTroop(troop, true);
-    return;
-  }
-  targetTile.occupantId = troop.id;
-  refreshLockVisual(troop);
-  if(LOCKING_TYPES.includes(targetTile.type)){
-    log(`${coloredName(troop.owner)} claims ${TILE_INFO[targetTile.type].name}.`);
-  }
+  return runExecuteMove({ ...ruleContext(), hexSize: HEX_SIZE, moveSpritesTo, refreshLockVisual, lockingTypes: LOCKING_TYPES, tileInfo: TILE_INFO }, troop, targetTile);
 }
 
 async function executeAttack(attacker, defender){
