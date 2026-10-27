@@ -56,12 +56,14 @@ Implementation: `src/multiplayer/ActionSystem.js` defines serializable intents, 
 
 ### 3. Add a WebRTC transport module
 
-- [ ] Add `src/multiplayer/` modules for the WebRTC peer connection, data channel, message codec/validation, session coordinator, and signaling-code import/export.
-- [ ] Create one host-to-guest data channel per guest, with ordered reliable delivery for game actions.
-- [ ] Apply strict payload size and message-rate limits, validate all parsed messages, and handle malformed input without crashing or mutating the match.
-- [ ] Add connection lifecycle handling for connecting, connected, disconnected, failed, and closed states, plus explicit retry/leave paths.
-- [ ] Ensure cleanup closes data channels, peer connections, listeners, timers, and any pending UI choices on restart or leaving a match.
-- [ ] Keep signaling data short-lived and avoid storing it in local storage or logging it by default.
+- [x] Add `src/multiplayer/` modules for the WebRTC peer connection, data channel, message codec/validation, session coordinator, and signaling-code import/export.
+- [x] Create one host-to-guest data channel per guest, with ordered reliable delivery for game actions.
+- [x] Apply strict payload size and message-rate limits, validate all parsed messages, and handle malformed input without crashing or mutating the match.
+- [x] Add connection lifecycle handling for connecting, connected, disconnected, failed, and closed states, plus explicit retry/leave paths.
+- [x] Ensure cleanup closes data channels, peer connections, listeners, timers, and any pending UI choices on restart or leaving a match.
+- [x] Keep signaling data short-lived and avoid storing it in local storage or logging it by default.
+
+Implementation: `MessageCodec.js` validates v1 envelopes and action payloads with a 16 KiB message limit. `SignalingCode.js` imports/exports bounded, versioned SDP codes. `WebRtcPeer.js` provides one ordered reliable data channel, lifecycle callbacks, inbound sequence/rate limits, and cleanup; callers supply ICE server configuration (none is silently baked in). `SessionCoordinator.js` manages host-star peer routing, handshake compatibility, and explicit peer teardown. Recreate a peer to retry; call `close()` to leave. Signaling codes remain caller-owned and are never persisted or logged by these modules.
 
 ### 4. Add host and guest lobby flows
 
