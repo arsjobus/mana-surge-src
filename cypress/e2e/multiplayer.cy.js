@@ -44,6 +44,22 @@ describe('multiplayer protocol and host authorization', () => {
     expect(decodeMessage('{"not":"a protocol message"}')).to.equal(null);
   });
 
+  it('accepts a host victory result once and rejects invalid or duplicate match endings', () => {
+    const ended = [];
+    const guest = new MatchSession({
+      role: 'guest', localSeat: 1, hostSeat: 0, matchId: 'match_identifier_1234',
+      onEnd: result => ended.push(result)
+    });
+
+    expect(guest.acceptMatchEnd(2)).to.equal(true);
+    expect(guest.acceptMatchEnd(0)).to.equal(false);
+    expect(ended).to.deep.equal([{ reason: 'victory', winnerSeat: 2 }]);
+    expect(() => encodeMessage({
+      v: 1, matchId: 'match_identifier_1234', senderSeat: 0, seq: 1,
+      type: 'matchEnded', payload: { winnerSeat: 3 }
+    })).to.throw('Invalid multiplayer message');
+  });
+
   it('authorizes only the assigned guest on its active turn and rejects replayed requests', () => {
     const sent = [];
     const accepted = [];

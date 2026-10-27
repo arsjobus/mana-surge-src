@@ -109,6 +109,8 @@ The guest host-disconnect path is now connected to a match-ended modal: it stops
 
 **Guest disconnect recovery slice: retry, replace with CPU, or end.** The host now gets an in-game choice when an assigned guest disconnects. Retry creates a fresh offer for the same seat and swaps the failed transport in the active host coordinator; the guest can reopen the lobby after its host connection ends, prepare the fresh invite, and join using the host's current seat-assignment snapshot. Replacing the guest changes that seat to CPU control, cancels any pending local choice so the turn loop can proceed, and closes the failed peer. Ending the match cancels pending input, closes the session, and presents the existing restart path. Manual browser disconnect checks remain outstanding.
 
+**Match victory synchronization slice completed.** When any seat wins on the host (through combat or end-of-turn mana), the host broadcasts a validated `matchEnded` message containing the winner seat. Guests end their session, cancel pending input, and present the same winner result. Duplicate or invalid winner messages are ignored. Cypress covers protocol validation and one-time guest termination; live multi-browser victory testing remains outstanding.
+
 ### 6. Build coverage and perform manual verification
 
 - [x] Add unit or browser tests for protocol validation, host action authorization, sequence handling, and guest rejection paths.

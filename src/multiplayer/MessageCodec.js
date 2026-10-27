@@ -6,7 +6,7 @@ export const RATE_WINDOW_MS = 10_000;
 
 const MESSAGE_TYPES = new Set([
   'hello', 'seatAssignment', 'actionRequest', 'actionAccepted', 'actionRejected',
-  'snapshot', 'heartbeat', 'heartbeatAck', 'disconnect', 'protocolError'
+  'snapshot', 'matchEnded', 'heartbeat', 'heartbeatAck', 'disconnect', 'protocolError'
 ]);
 const MATCH_ID = /^[A-Za-z0-9_-]{16,64}$/;
 
@@ -40,6 +40,7 @@ function validPayload(type, payload) {
     case 'actionAccepted': return exactKeys(payload, ['action', 'stateVersion', 'event', 'snapshot']) && isValidActionPayload(payload.action) && Number.isSafeInteger(payload.stateVersion) && payload.stateVersion > 0 && !!payload.event && typeof payload.event === 'object' && !!payload.snapshot && typeof payload.snapshot === 'object';
     case 'actionRejected': return exactKeys(payload, ['requestSeq', 'code']) && Number.isSafeInteger(payload.requestSeq) && payload.requestSeq > 0 && ['NOT_YOUR_SEAT', 'NOT_YOUR_TURN', 'WRONG_PHASE', 'ILLEGAL_ACTION', 'STALE_STATE', 'RATE_LIMITED'].includes(payload.code);
     case 'snapshot': return exactKeys(payload, ['stateVersion', 'state', 'hash']) && Number.isSafeInteger(payload.stateVersion) && payload.stateVersion >= 0 && !!payload.state && typeof payload.state === 'object' && typeof payload.hash === 'string' && payload.hash.length <= 128;
+    case 'matchEnded': return exactKeys(payload, ['winnerSeat']) && Number.isInteger(payload.winnerSeat) && payload.winnerSeat >= 0 && payload.winnerSeat <= 2;
     case 'heartbeat': case 'heartbeatAck': return exactKeys(payload, ['timestamp']) && Number.isSafeInteger(payload.timestamp);
     case 'disconnect': return exactKeys(payload, ['reason']) && ['leave', 'connectionLost', 'hostEnded'].includes(payload.reason);
     case 'protocolError': return exactKeys(payload, ['code']) && ['VERSION_MISMATCH', 'INVALID_MESSAGE', 'MESSAGE_TOO_LARGE'].includes(payload.code);

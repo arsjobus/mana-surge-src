@@ -166,5 +166,21 @@ export class MatchSession {
     return true;
   }
 
+  endForVictory(winnerSeat) {
+    if (this.role !== 'host' || this.ended || !Number.isInteger(winnerSeat) || winnerSeat < 0 || winnerSeat > 2) return false;
+    this.ended = true;
+    this.pendingRequest = null;
+    this.broadcast('matchEnded', { winnerSeat });
+    return true;
+  }
+
+  acceptMatchEnd(winnerSeat) {
+    if (this.role !== 'guest' || this.ended || !Number.isInteger(winnerSeat) || winnerSeat < 0 || winnerSeat > 2) return false;
+    this.ended = true;
+    this.pendingRequest = null;
+    this.onEnd({ reason: 'victory', winnerSeat });
+    return true;
+  }
+
   end() { this.ended = true; this.pendingRequest = null; }
 }

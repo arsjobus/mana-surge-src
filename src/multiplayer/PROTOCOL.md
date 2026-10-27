@@ -42,6 +42,7 @@ V1 types and payloads:
 - `actionAccepted`: host to guest, `{ action, stateVersion, event, snapshot }`. Host increments version once per accepted action; snapshot is mandatory in v1, including at phase boundaries. An attack event includes the host's resolved combat result (`attackerStats`, `defenderStats`, `attackerKills`, `defenderKills`, and casualty IDs); clients apply this event/snapshot and never roll or recalculate combat locally.
 - `actionRejected`: host to guest, `{ requestSeq, code }`; codes: `NOT_YOUR_SEAT`, `NOT_YOUR_TURN`, `WRONG_PHASE`, `ILLEGAL_ACTION`, `STALE_STATE`, `RATE_LIMITED`. Rejection never mutates state or consumes an action point.
 - `snapshot`: host to guest, `{ stateVersion, state, hash }`.
+- `matchEnded`: host to guest, `{ winnerSeat }`; the host ends the session and guests display the host-declared winner. Guests cannot send this message.
 - `heartbeat` and `heartbeatAck`: either direction, `{ timestamp }`; sender-local integer timestamp is informational only.
 - `disconnect`: either direction, `{ reason }`; reason is one of `leave`, `connectionLost`, `hostEnded`.
 - `protocolError`: either direction, `{ code }`; code is `VERSION_MISMATCH`, `INVALID_MESSAGE`, or `MESSAGE_TOO_LARGE`, after which the peer may close the channel.
