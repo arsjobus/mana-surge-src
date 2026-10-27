@@ -71,3 +71,31 @@ describe('multiplayer protocol and host authorization', () => {
     expect(sent[sent.length - 1]).to.deep.equal([1, 'actionRejected', { requestSeq: 1, code: 'ILLEGAL_ACTION' }]);
   });
 });
+
+describe('multiplayer lobby UI', () => {
+  beforeEach(() => {
+    cy.visit('/');
+    cy.get('#multiplayer-btn').click();
+  });
+
+  it('lets the host choose a seat and mark the remaining seats as guest or CPU', () => {
+    cy.get('#multiplayer-modal').should('be.visible');
+    cy.get('.host-seat-btn[data-seat="2"]').click().should('have.class', 'selected');
+    cy.get('.seat-mode[data-seat="2"]').should('be.disabled').and('contain.text', 'Host');
+    cy.get('.seat-mode[data-seat="0"]').select('guest');
+    cy.get('.seat-mode[data-seat="1"]').select('cpu');
+    cy.get('#invite-seat').should('be.enabled').find('option').should('have.length', 1).and('have.value', '0');
+    cy.get('#lobby-cancel').click();
+    cy.get('#lobby-status').should('have.text', 'Lobby cancelled.');
+    cy.get('#lobby-close').click();
+    cy.get('#multiplayer-modal').should('not.be.visible');
+  });
+
+  it('reports malformed host invite codes without starting a guest session', () => {
+    cy.get('#guest-offer').type('not-a-mana-surge-invite');
+    cy.get('#guest-prepare-btn').click();
+    cy.get('#lobby-status').should('have.text', 'Invalid or unsupported host invite code.');
+    cy.get('#guest-seat-confirm').should('not.be.visible');
+    cy.get('#guest-join-btn').should('not.be.visible');
+  });
+});

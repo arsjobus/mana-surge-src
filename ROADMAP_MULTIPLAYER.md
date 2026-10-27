@@ -106,6 +106,8 @@ The guest host-disconnect path is now connected to a match-ended modal: it stops
 
 Coverage: `cypress/e2e/multiplayer.cy.js` checks protocol envelope round trips and malformed/mismatched input, host seat and turn authorization, replay rejection, wrong-phase actions, and game-rule rejection. The full Cypress suite passes. These tests cover session primitives; they do not establish that a complete multiplayer match is playable.
 
+Additional Cypress coverage: `multiplayer.cy.js` now checks host seat selection, CPU/open guest seat configuration, lobby cancellation, and malformed invite feedback. The broader checklist remains open pending deterministic guest assignment and complete multiplayer flow coverage.
+
 ## Completion criteria
 
 - [ ] Existing solo games, CPU behavior, turn rules, and restart flow continue to work.
