@@ -148,7 +148,7 @@ export function setupMultiplayerLobby({ state, onStartMatch = () => {} }) {
         onState: value => setStatus(`Connection: ${value}`), onError: () => setStatus('Connection error.') });
       const answer = await guestPeer.acceptOffer(offer);
       if (attempt !== operation) { guestSignal.close(); guestPeer.close(); return; }
-      if (!guestSignal.submitAnswer(answer)) throw new Error('Could not return the connection answer.');
+      if (!await guestSignal.submitAnswer(answer)) throw new Error('Could not return the connection answer.');
       state.multiplayer = { role, hostSeat, localSeat: seat, matchId, winScore: score, peer: guestPeer };
       guestSeatConfirmed = false;
       guestMatchStarted = false;
