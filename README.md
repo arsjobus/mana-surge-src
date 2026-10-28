@@ -1,5 +1,7 @@
 # Mana Surge
 
+![Mana Surge Cover](cover.png)
+
 ## Setup and Quick Start
 
 Serve the repository root over HTTP so the browser can load ES modules, Phaser, and music:
