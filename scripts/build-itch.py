@@ -2,11 +2,14 @@
 """Package the browser game as an Itch.io HTML game ZIP."""
 
 from pathlib import Path
+import json
+import os
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 
 ROOT = Path(__file__).resolve().parent.parent
 OUTPUT = ROOT / 'dist' / 'mana-surge-itch.zip'
+SIGNALING_URL = os.environ.get('MANA_SURGE_SIGNALING_URL', '').strip()
 INCLUDED_PATHS = (Path('index.html'), Path('assets'), Path('src'))
 REQUIRED_FILES = (
     Path('index.html'),
@@ -31,6 +34,9 @@ def iter_files():
 
 
 def main():
+    if SIGNALING_URL and not SIGNALING_URL.startswith('https://'):
+        raise ValueError('MANA_SURGE_SIGNALING_URL must be an HTTPS URL')
+
     for required_file in REQUIRED_FILES:
         if not (ROOT / required_file).is_file():
             raise FileNotFoundError(f'Required game file is missing: {required_file}')
@@ -43,7 +49,14 @@ def main():
             info = ZipInfo(archive_name, date_time=(2020, 1, 1, 0, 0, 0))
             info.compress_type = ZIP_DEFLATED
             info.external_attr = 0o100644 << 16
-            archive.writestr(info, path.read_bytes(), compress_type=ZIP_DEFLATED, compresslevel=9)
+            content = path.read_bytes()
+            if archive_name == 'index.html' and SIGNALING_URL:
+                html = content.decode('utf-8')
+                signaling_url_json = json.dumps(SIGNALING_URL).replace('<', chr(92) + 'u003c')
+                script = f'<script>globalThis.MANA_SURGE_SIGNALING_URL = {signaling_url_json};</script>\n'
+                html = html.replace('</head>', f'{script}  </head>', 1)
+                content = html.encode('utf-8')
+            archive.writestr(info, content, compress_type=ZIP_DEFLATED, compresslevel=9)
 
     print(f'Created {OUTPUT.relative_to(ROOT)} ({len(files)} files)')
 

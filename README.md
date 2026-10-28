@@ -19,7 +19,13 @@ Then open <http://localhost:8000>. ES modules require HTTP(S); opening `index.ht
 
 ## Build for Itch.io
 
-Run `npm run build:itch` to create `dist/mana-surge-itch.zip`. Upload that ZIP to an Itch.io project configured as an HTML game, with “This file will be played in the browser” enabled. The archive contains `index.html`, `assets/`, and `src/` at its root so the game can load its local Phaser build, styles, music, and ES modules.
+Set `MANA_SURGE_SIGNALING_URL` to the deployed Vercel API URL when building, then run the build command:
+
+```sh
+MANA_SURGE_SIGNALING_URL=https://your-project.vercel.app/api/signaling npm run build:itch
+```
+
+The build embeds that URL into the ZIP's `index.html`; use your actual Vercel production domain. Upload `dist/mana-surge-itch.zip` to an Itch.io project configured as an HTML game, with “This file will be played in the browser” enabled. The archive contains `index.html`, `assets/`, and `src/` at its root so the game can load its local Phaser build, styles, music, and ES modules. The Vercel signaling function allows cross-origin requests for the Itch.io hosted game.
 
 The build script uses Python's standard library and does not require installing extra packages.
 
