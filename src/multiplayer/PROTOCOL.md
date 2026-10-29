@@ -66,3 +66,7 @@ In v1 the host sends the accepted action/event and resulting snapshot in order f
 CPU decisions, including mistake-chance choices, run only on the host. The host serializes each selected CPU action through the same accepted-action/event path as a human action. Combat itself has no random roll: `resolveCombatOutcome` computes both sides' kills from the host's current stats in one simultaneous result, which is included in the attack event and resulting snapshot.
 
 Game-specific validation and application live above transport. WebRTC delivers bounded protocol messages but does not decide whether an action is legal.
+
+## Guest presentation
+
+Snapshots carry state, not animation, so a guest derives the visuals by diffing the incoming snapshot against its current model, using the accepted `action` for context. Surviving troops tween to their new tile, new troops pop in with the spawn burst, removed troops play the destroy effect (thorns victims first move onto the thorns tile), attacks show the clash burst, and mana gains show the channel or sacrifice burst. The shared model is replaced immediately; presentation runs on an ordered queue so back-to-back host updates never overlap. The initial seat-assignment snapshot snaps to state without animation. The host also publishes a snapshot right after end-phase mana is awarded so guests see that effect when it happens.

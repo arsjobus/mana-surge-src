@@ -23,7 +23,7 @@ import { TILE_INFO, LOCKING_TYPES, COLOR_META } from './data/gameData.js';
 import { WEIGHT_PRESETS } from './data/aiWeights.js';
 import * as BoardModel from './board/BoardModel.js';
 import { buildTextures, renderBoard as drawBoard } from './board/BoardRenderer.js';
-import { createTroop as createTroopView, destroyTroop as destroyTroopView, refreshLockVisual as refreshTroopLockVisual, burst as troopBurst, moveSpritesTo as moveTroopSprites } from './entities/Troop.js';
+import { TOKEN_SCALE, createTroop as createTroopView, destroyTroop as destroyTroopView, refreshLockVisual as refreshTroopLockVisual, burst as troopBurst, moveSpritesTo as moveTroopSprites } from './entities/Troop.js';
 import { daggerAvailable as combatDaggerAvailable, performSacrifice as resolveSacrifice, executeAttack as resolveAttack } from './systems/CombatSystem.js';
 import { startPhase as runStartPhase, chooseCpuSpawnTile } from './systems/SpawnSystem.js';
 import { playTurn as runTurn, gameLoop as runGameLoop, endPhase as runEndPhase, executeMove as runExecuteMove, movePhase as runMovePhase, combatPhase as runCombatPhase } from './systems/TurnSystem.js';
@@ -123,7 +123,24 @@ function setupInitialTroops(){ BoardModel.setupInitialTroops(gameState.players,g
 
 function waitFor(kind,pi,options=[]){return localActions.request(kind,pi,options);}
 function validateIntent(intent,phase,pi,spawnOptions=[]){return validateActionIntent({troops:()=>gameState.troops,getTroop:id=>gameState.troops.find(troop=>troop.id===id),isLocked,isEmptyTile,neighbors,getTroopAt,daggerAvailable},intent,{phase,playerIndex:pi,spawnOptions});}
-function applyHostSnapshot(snapshot){
+/* Guests replace the shared model immediately, then present the change the way the
+   host sees it (tweened moves, spawn pop-in, combat/sacrifice/mana effects). The
+   presentation runs on one ordered queue so rapid host updates never overlap. */
+let guestVisualQueue = Promise.resolve();
+function queueGuestVisual(step){
+  guestVisualQueue = guestVisualQueue.then(step).catch(error => console.error('Guest visual effect failed:', error));
+}
+function troopSprites(troop){ return [troop.sprite, troop.glow, troop.lockSprite, troop.selSprite, troop.statText]; }
+function placeTroopSprites(troop,q,r){
+  const pixel = axialToPixel(q, r, HEX_SIZE);
+  for (const sprite of troopSprites(troop)) sprite?.setPosition(boardX(pixel.x), boardY(pixel.y));
+}
+function discardTroopSprites(troop){
+  troop._lockTween?.stop();
+  for (const sprite of troopSprites(troop)) sprite?.destroy();
+}
+/** `action` is the host's accepted action (null for plain snapshots); `animate: false` snaps to the snapshot. */
+function applyHostSnapshot(snapshot, action = null, { animate = true } = {}){
   if (!snapshot || !Array.isArray(snapshot.players) || snapshot.players.length !== 3 || !Array.isArray(snapshot.tiles) || snapshot.tiles.length !== gameState.tiles.size || !Array.isArray(snapshot.troops) || !Number.isSafeInteger(snapshot.nextTroopId) || !Number.isSafeInteger(snapshot.winScore)) return false;
   const tileKeys = new Set();
   if (snapshot.tiles.some(tile => { const tileKey = key(tile.q,tile.r); if (!Number.isInteger(tile.q) || !Number.isInteger(tile.r) || !gameState.tiles.has(tileKey) || tileKeys.has(tileKey) || !Object.hasOwn(TILE_INFO,tile.type)) return true; tileKeys.add(tileKey); return false; })) return false;
@@ -136,42 +153,89 @@ function applyHostSnapshot(snapshot){
     troopCoords.add(coordKey);
   }
   if (snapshot.nextTroopId <= Math.max(0, ...troopIds) || snapshot.players.some(player => !Number.isSafeInteger(player.mana) || !Number.isSafeInteger(player.actionPoints) || !player.spawner || !Number.isInteger(player.spawner.q) || !Number.isInteger(player.spawner.r))) return false;
-  // Keep sprites for troops that still exist. Recreating every token for every
-  // accepted action can leave tween artifacts, and used to assign a temporary
-  // troop ID before replacing it with the host ID.
+  // Keep sprites for troops that still exist so they can tween to their new
+  // tile instead of being rebuilt or teleported.
   const existing = new Map(gameState.troops.map(troop => [troop.id, troop]));
+  const oldMana = gameState.players.map(player => player.mana);
+  const attacker = action?.type === 'attack' ? existing.get(action.attackerId) : null;
+  const defender = action?.type === 'attack' ? existing.get(action.defenderId) : null;
+  const attackInfo = attacker && defender ? { attacker, defender, attackerStats: getStats(attacker), defenderStats: getStats(defender) } : null;
   for (const tile of gameState.tiles.values()) tile.occupantId = null;
   gameState.troops = [];
   snapshot.players.forEach((player, i) => Object.assign(gameState.players[i], { mana: player.mana, actionPoints: player.actionPoints, spawner: { ...player.spawner } }));
   for (const item of snapshot.tiles) Object.assign(getTile(item.q,item.r), { type: item.type, occupantId: null });
+  const moves = [], spawns = [];
   for (const item of snapshot.troops) {
     let troop = existing.get(item.id);
     if (troop) {
       existing.delete(item.id);
+      const moved = troop.q !== item.q || troop.r !== item.r;
       troop.owner = item.owner;
       troop.q = item.q;
       troop.r = item.r;
-      const pixel = axialToPixel(item.q, item.r, HEX_SIZE);
-      const x = boardX(pixel.x), y = boardY(pixel.y);
-      for (const sprite of [troop.sprite, troop.glow, troop.lockSprite, troop.selSprite, troop.statText]) sprite?.setPosition(x, y);
-      refreshLockVisual(troop);
+      if (moved && animate) moves.push({ troop, q: item.q, r: item.r });
+      else if (moved) placeTroopSprites(troop, item.q, item.r);
+      if (!moved || !animate) refreshLockVisual(troop);
       gameState.troops.push(troop);
     } else {
-      troop = createTroop(item.owner, item.q, item.r, false);
+      troop = createTroop(item.owner,item.q,item.r,false);
       troop.id = item.id;
+      if (animate) {
+        // Hidden until the queued pop-in plays, matching the host's spawn effect.
+        troop.sprite.setScale(0); troop.glow.setAlpha(0); troop.statText.setAlpha(0);
+        spawns.push(troop);
+      }
     }
     getTile(item.q,item.r).occupantId = item.id;
   }
-  for (const troop of existing.values()) {
-    troop._lockTween?.stop();
-    for (const sprite of [troop.sprite, troop.glow, troop.lockSprite, troop.selSprite, troop.statText]) sprite?.destroy();
-  }
+  const removed = [...existing.values()];
+  // A troop that vanished while moving was impaled on thorns: show it arrive first.
+  const thornsVictim = animate && action?.type === 'move' ? removed.find(troop => troop.id === action.troopId) : null;
+  if (thornsVictim && gameState.tiles.has(key(action.to.q, action.to.r))) moves.push({ troop: thornsVictim, q: action.to.q, r: action.to.r, thorns: true });
+  const manaGains = snapshot.players.map((player, i) => player.mana > oldMana[i]);
   gameState.nextTroopId = snapshot.nextTroopId;
   gameState.winScore = snapshot.winScore;
   gameState.currentPlayerIndex = snapshot.activeSeat;
   gameState.stateVersion = snapshot.stateVersion;
   clearHighlights();
   updateHUD();
+  if (!animate) {
+    removed.forEach(discardTroopSprites);
+    return true;
+  }
+  if (!attackInfo && !moves.length && !spawns.length && !removed.length && !manaGains.some(Boolean)) return true;
+  queueGuestVisual(async () => {
+    if (attackInfo) {
+      const { attackerStats: a, defenderStats: d } = attackInfo;
+      log(`⚔️ ${coloredName(attackInfo.attacker.owner)} (${a.atk}/${a.def}) attacks ${coloredName(attackInfo.defender.owner)} (${d.atk}/${d.def}).`);
+      burst((attackInfo.attacker.sprite.x + attackInfo.defender.sprite.x) / 2, (attackInfo.attacker.sprite.y + attackInfo.defender.sprite.y) / 2, 0xffffff, 20);
+      await sleep(200);
+      if (!removed.length) log('Both troops bounce off harmlessly.');
+    }
+    for (const troop of spawns) {
+      scene.tweens.add({ targets: troop.sprite, scale: TOKEN_SCALE, duration: 280, ease: 'Back.easeOut' });
+      troop.glow.setAlpha(0.5); troop.statText.setAlpha(1);
+      burst(troop.sprite.x, troop.sprite.y, playerColorHex(troop.owner), 14);
+    }
+    if (moves.length) await Promise.all(moves.map(({ troop, q, r }) => { const pixel = axialToPixel(q, r, HEX_SIZE); return moveSpritesTo(troop, boardX(pixel.x), boardY(pixel.y)); }));
+    for (const { troop, thorns } of moves) {
+      if (thorns) { log(`💀 ${coloredName(troop.owner)}'s troop is impaled by thorns!`); continue; }
+      refreshLockVisual(troop);
+      const tile = getTile(troop.q, troop.r);
+      if (action?.type === 'move' && troop.id === action.troopId && LOCKING_TYPES.includes(tile.type)) log(`${coloredName(troop.owner)} claims ${TILE_INFO[tile.type].name}.`);
+    }
+    for (const troop of removed) {
+      troop._lockTween?.stop();
+      await destroyTroop(troop, troop === thornsVictim);
+    }
+    const center = axialToPixel(0, 0, HEX_SIZE);
+    manaGains.forEach((gained, pi) => {
+      if (!gained) return;
+      const player = gameState.players[pi];
+      if (action?.type === 'sacrifice') { log(`🗡️ ${coloredName(pi)} sacrifices 3 troops for 1 mana. (${player.mana}/${gameState.winScore})`); burst(boardX(center.x), boardY(center.y), 0xc9b8ff, 24); }
+      else { log(`✨ ${coloredName(pi)} channels a Mana Point! (${player.mana}/${gameState.winScore})`); burst(boardX(center.x), boardY(center.y), 0xffd76a, 30); }
+    });
+  });
   return true;
 }
 function requestGuestMove(action){
@@ -217,7 +281,7 @@ function startGuestCombatPhase(){
   guestCombatPhaseRunning = true;
   runCombatPhase(ruleContext(), session.localSeat).catch(error => console.error('Guest combat phase failed:', error)).finally(() => { guestCombatPhaseRunning = false; });
 }
-function ruleContext(){return {players:()=>gameState.players,troops:()=>gameState.troops,tiles:()=>gameState.tiles,countTiles,getTile,isLocked,getStats,isEmptyTile,neighbors,sleep,log,coloredName,cssColor,createTroop,destroyTroop,waitFor,validateIntent,updateHUD,document,hexSize:HEX_SIZE,axialToPixel:(q,r)=>axialToPixel(q,r,HEX_SIZE),boardX,boardY,burst,winScore:gameState.winScore,setGameOver:value=>{gameState.gameOver=value;},showVictory:pi=>{gameState.session?.endForVictory(pi);showVictory(pi);},weights:AIW,cpuChooseSpawnTile:(_pi,options)=>chooseCpuSpawnTile({getTile},options),waitForSpawn:chooseSpawnTileHuman,hasLegalMove,hasLegalAttack,daggerAvailable,gameOver:()=>gameState.gameOver,performSacrifice,executeMove,executeAttack,clearHighlights,waitUntilResumed:()=>gameState.session?.waitUntilResumed(),multiplayerRole:gameState.session?.role,requestGuestMove,requestGuestCombat,requestGuestSacrifice,requestGuestSacrificeCancel,actionApplied:action=>{const session=gameState.session;if(session?.role==='host')session.publishAccepted(action,{type:action.type},session.createSnapshot(gameState));},setDecision:(seat,phase)=>{const session=gameState.session;if(!session)return;session.setDecision({seat,phase});if(session.role==='host')session.publishSnapshot(session.createSnapshot(gameState));},moveDecision:(pi,isPreCombat)=>CPU_MOVE_TREE({pi,isPreCombat}),combatDecision:pi=>CPU_COMBAT_TREE({pi})};}
+function ruleContext(){return {players:()=>gameState.players,troops:()=>gameState.troops,tiles:()=>gameState.tiles,countTiles,getTile,isLocked,getStats,isEmptyTile,neighbors,sleep,log,coloredName,cssColor,createTroop,destroyTroop,waitFor,validateIntent,updateHUD,document,hexSize:HEX_SIZE,axialToPixel:(q,r)=>axialToPixel(q,r,HEX_SIZE),boardX,boardY,burst,winScore:gameState.winScore,setGameOver:value=>{gameState.gameOver=value;},showVictory:pi=>{gameState.session?.endForVictory(pi);showVictory(pi);},weights:AIW,cpuChooseSpawnTile:(_pi,options)=>chooseCpuSpawnTile({getTile},options),waitForSpawn:chooseSpawnTileHuman,hasLegalMove,hasLegalAttack,daggerAvailable,gameOver:()=>gameState.gameOver,performSacrifice,executeMove,executeAttack,clearHighlights,waitUntilResumed:()=>gameState.session?.waitUntilResumed(),multiplayerRole:gameState.session?.role,requestGuestMove,requestGuestCombat,requestGuestSacrifice,requestGuestSacrificeCancel,publishState:()=>{const session=gameState.session;if(session?.role==='host')session.publishSnapshot(session.createSnapshot(gameState));},actionApplied:action=>{const session=gameState.session;if(session?.role==='host')session.publishAccepted(action,{type:action.type},session.createSnapshot(gameState));},setDecision:(seat,phase)=>{const session=gameState.session;if(!session)return;session.setDecision({seat,phase});if(session.role==='host')session.publishSnapshot(session.createSnapshot(gameState));},moveDecision:(pi,isPreCombat)=>CPU_MOVE_TREE({pi,isPreCombat}),combatDecision:pi=>CPU_COMBAT_TREE({pi})};}
 function daggerAvailable(pi){return combatDaggerAvailable({countTiles,troops:()=>gameState.troops},pi);}
 function cpuShouldUseDagger(pi){return aiShouldUseDagger({players:gameState.players,troops:gameState.troops,weights:AIW()},pi);}
 
@@ -481,12 +545,12 @@ const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMa
         }
         if (message.type === 'seatAssignment' && role === 'guest') {
           const snapshot = message.payload.snapshot;
-          if (gameState.session?.acceptSnapshot({ stateVersion: snapshot.stateVersion, state: snapshot }, applyHostSnapshot)) gameState.session.onStatus(`Connected as ${gameState.players[local].name}. Waiting for host actions.`);
+          if (gameState.session?.acceptSnapshot({ stateVersion: snapshot.stateVersion, state: snapshot }, state => applyHostSnapshot(state, null, { animate: false }))) gameState.session.onStatus(`Connected as ${gameState.players[local].name}. Waiting for host actions.`);
         }
         if ((message.type === 'snapshot' || message.type === 'actionAccepted') && role === 'guest') {
           const accepted = message.type === 'snapshot'
-            ? gameState.session?.acceptSnapshot(message.payload, applyHostSnapshot)
-            : gameState.session?.acceptHostUpdate(message.payload, applyHostSnapshot);
+            ? gameState.session?.acceptSnapshot(message.payload, state => applyHostSnapshot(state))
+            : gameState.session?.acceptHostUpdate(message.payload, state => applyHostSnapshot(state, message.payload.action));
           if (!accepted) gameState.session?.onStatus('Host update was invalid or out of order. Waiting for a fresh snapshot.');
           else if (message.type === 'actionAccepted' && pendingGuestMoveResolve) {
             const resolve = pendingGuestMoveResolve;
@@ -502,7 +566,8 @@ const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMa
             localActions.cancel();
             pendingGuestMoveResolve?.(false);
             pendingGuestMoveResolve = null;
-            showVictory(winnerSeat);
+            // Let queued combat/mana effects finish before the result modal covers them.
+            queueGuestVisual(() => showVictory(winnerSeat));
           }
         }
         if (message.type === 'actionRejected' && role === 'guest') {

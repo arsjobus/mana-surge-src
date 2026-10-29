@@ -31,6 +31,9 @@ export async function endPhase(context, pi) {
   const pixel = axialToPixel(0, 0, hexSize);
   burst(boardX(pixel.x), boardY(pixel.y), 0xffd76a, 30);
   updateHUD();
+  // Guests only learn of the mana gain from a host snapshot; send it now so the
+  // effect plays when it happens rather than at the start of the next turn.
+  context.publishState?.();
   if (player.mana >= winScore) {
     setGameOver(true);
     showVictory(pi);
