@@ -339,6 +339,16 @@ describe('multiplayer lobby UI', () => {
     cy.get('#multiplayer-modal').should('not.be.visible');
   });
 
+  it('explains why the host cannot start yet and offers a CPU fallback for an uninvited guest seat', () => {
+    cy.get('.host-seat-btn[data-seat="0"]').click();
+    cy.get('.seat-mode[data-seat="1"]').select('guest');
+    cy.get('#lobby-start-cpu').should('be.visible').and('contain.text', 'Start with CPU for Blue');
+    cy.get('#lobby-start-match').click();
+    cy.get('#lobby-status').should('contain.text', 'Create an invite for Blue');
+    cy.get('.seat-mode[data-seat="1"]').select('cpu');
+    cy.get('#lobby-start-cpu').should('not.be.visible');
+  });
+
   it('reports malformed host invite codes without starting a guest session', () => {
     cy.get('#guest-offer').type('not-a-mana-surge-invite');
     cy.get('#guest-prepare-btn').click();

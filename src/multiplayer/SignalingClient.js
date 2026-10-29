@@ -1,5 +1,21 @@
 const SIGNAL_TIMEOUT_MS = 30_000;
 const INVITE_WAIT_MS = 9 * 60 * 1000;
+const REQUEST_TIMEOUT_MS = 15_000;
+const POLL_INTERVAL_MS = 700;
+const MAX_POLL_FAILURES = 6;
+const RETRY_BASE_MS = 400;
+
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+/** `transient` errors (network blips, 5xx) are safe to retry; the rest are final. */
+class SignalingError extends Error {
+  constructor(message, { code = null, transient = false } = {}) {
+    super(message);
+    this.name = 'SignalingError';
+    this.code = code;
+    this.transient = transient;
+  }
+}
 
 export function defaultSignalingUrl() {
   if (globalThis.MANA_SURGE_SIGNALING_URL) return globalThis.MANA_SURGE_SIGNALING_URL;
@@ -13,16 +29,41 @@ function isHttpSignalingUrl(url) {
   return /^https?:/.test(url);
 }
 
-async function signalingRequest(url, data) {
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(data)
-  });
-  let result;
-  try { result = await response.json(); } catch { throw new Error('Signaling service sent invalid data'); }
-  if (!response.ok) throw new Error(signalingError(result.code));
-  return result;
+async function signalingRequestOnce(url, data) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    let response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(data),
+        signal: controller.signal
+      });
+    } catch {
+      throw new SignalingError('Could not reach the signaling service.', { code: 'NETWORK', transient: true });
+    }
+    const retryable = response.status >= 500 || response.status === 429;
+    let result;
+    try { result = await response.json(); }
+    catch { throw new SignalingError('Signaling service sent invalid data.', { code: 'BAD_RESPONSE', transient: retryable }); }
+    if (!response.ok) throw new SignalingError(signalingError(result?.code), { code: result?.code ?? null, transient: retryable });
+    return result;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** POST to the HTTP relay, retrying transient failures. Only retry idempotent requests. */
+async function signalingRequest(url, data, { retries = 0 } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    try { return await signalingRequestOnce(url, data); }
+    catch (error) {
+      if (!error.transient || attempt >= retries) throw error;
+      await delay(RETRY_BASE_MS * 2 ** attempt);
+    }
+  }
 }
 
 function openSocket(url) {
@@ -60,22 +101,36 @@ function signalingError(code) {
   return ({ ROOM_FULL: 'That invite has already been used.', ROOM_EXPIRED: 'That invite is invalid or expired.', INVALID_MESSAGE: 'The signaling service rejected the connection.', SIGNALING_UNAVAILABLE: 'The signaling service is temporarily unavailable.' })[code] || 'Signaling failed.';
 }
 
-export async function createSignalingInvite({ url = defaultSignalingUrl(), matchId, hostSeat, seat, score, offer, onStatus = () => {} }) {
+export async function createSignalingInvite({ url = defaultSignalingUrl(), matchId, hostSeat, seat, score, offer, onStatus = () => {}, onGuestJoined = () => {} }) {
+  let joinedReported = false;
+  const reportJoined = () => {
+    if (joinedReported) return;
+    joinedReported = true;
+    onStatus('Guest found. Connecting directly…');
+    onGuestJoined();
+  };
   if (isHttpSignalingUrl(url)) {
-    const { code } = await signalingRequest(url, { action: 'create', matchId, hostSeat, seat, score, offer });
+    const { code } = await signalingRequest(url, { action: 'create', matchId, hostSeat, seat, score, offer }, { retries: 1 });
     let closed = false;
     let timer;
     const answerPromise = new Promise((resolve, reject) => {
       const deadline = Date.now() + INVITE_WAIT_MS;
+      let failures = 0;
       const poll = async () => {
         if (closed) return reject(new Error('Invite cancelled'));
-        if (Date.now() >= deadline) return reject(new Error('Signaling service timed out'));
+        if (Date.now() >= deadline) return reject(new SignalingError(signalingError('ROOM_EXPIRED'), { code: 'ROOM_EXPIRED' }));
         try {
           const result = await signalingRequest(url, { action: 'status', code });
-          if (result.guestJoined) onStatus('Guest found. Connecting directly…');
+          failures = 0;
+          if (result.guestJoined) reportJoined();
           if (result.answer) return resolve(result);
-          timer = setTimeout(poll, 700);
-        } catch (error) { reject(error); }
+        } catch (error) {
+          // A single dropped request must not strand the host: keep polling
+          // through transient errors and only give up on a persistent outage.
+          if (!error.transient || ++failures > MAX_POLL_FAILURES) return reject(error);
+        }
+        if (closed) return reject(new Error('Invite cancelled'));
+        timer = setTimeout(poll, failures ? Math.min(5_000, POLL_INTERVAL_MS * 2 ** failures) : POLL_INTERVAL_MS);
       };
       poll();
     });
@@ -96,10 +151,11 @@ export async function createSignalingInvite({ url = defaultSignalingUrl(), match
   }
   const socket = await openSocket(url);
   socket.send(JSON.stringify({ type: 'create', matchId, hostSeat, seat, score, offer }));
+  const onSocketMessage = message => { if (message.type === 'guestJoined') reportJoined(); };
   let created;
-  try { created = await receive(socket, ['created'], message => { if (message.type === 'guestJoined') onStatus('Guest found. Connecting directly…'); }); }
+  try { created = await receive(socket, ['created'], onSocketMessage); }
   catch (error) { socket.close(); throw error; }
-  let answerPromise = receive(socket, ['answer'], message => { if (message.type === 'guestJoined') onStatus('Guest found. Connecting directly…'); }, INVITE_WAIT_MS);
+  let answerPromise = receive(socket, ['answer'], onSocketMessage, INVITE_WAIT_MS);
   return {
     code: created.code,
     waitForAnswer: async () => {
@@ -120,7 +176,8 @@ export async function joinSignalingInvite(code, { url = defaultSignalingUrl() } 
       submitAnswer: async answer => {
         if (submitted) return false;
         submitted = true;
-        await signalingRequest(url, { action: 'answer', code: String(code || '').trim(), answer });
+        // Setting an answer is idempotent on the relay, so retry transient failures.
+        await signalingRequest(url, { action: 'answer', code: String(code || '').trim(), answer }, { retries: 2 });
         return true;
       },
       close: () => {}

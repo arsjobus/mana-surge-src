@@ -87,6 +87,8 @@
             <label for="invite-seat">Invite seat</label><select id="invite-seat"></select>
             <button class="game-btn" id="host-create-btn">Create invite</button>
             <button class="game-btn primary" id="lobby-start-match">Start match</button>
+            <button class="game-btn" id="lobby-start-cpu" hidden>Start with CPU for missing seats</button>
+            <ul id="lobby-seats" hidden aria-label="Guest connection status"></ul>
           </section>
           <section><h3>Join a match</h3><label for="guest-offer">Host invite code</label><textarea id="guest-offer" rows="2" maxlength="100"></textarea>
             <button class="game-btn" id="guest-prepare-btn">Join invite</button><button class="game-btn" id="lobby-seat-confirm">Confirm seat</button><button class="game-btn primary" id="guest-join-btn">Join match</button>
