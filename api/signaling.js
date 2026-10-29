@@ -32,6 +32,13 @@ async function redis(command) {
   return result.result;
 }
 
+function parseBody(req) {
+  const body = req.body;
+  if (typeof body === 'string') return JSON.parse(body);
+  if (Buffer.isBuffer(body)) return JSON.parse(body.toString('utf8'));
+  return body;
+}
+
 function roomKey(code) { return `mana-surge:room:${code}`; }
 function guestKey(code) { return `mana-surge:guest:${code}`; }
 function answerKey(code) { return `mana-surge:answer:${code}`; }
@@ -40,6 +47,8 @@ module.exports = async function handler(req, res) {
   res.setHeader('access-control-allow-origin', '*');
   res.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
   res.setHeader('access-control-allow-headers', 'content-type');
+  res.setHeader('access-control-max-age', '86400');
+  res.setHeader('cache-control', 'no-store');
   if (req.method === 'OPTIONS') {
     res.statusCode = 204;
     return res.end();
@@ -50,7 +59,9 @@ module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return send(res, 405, { code: 'INVALID_MESSAGE' });
 
   try {
-    const message = req.body;
+    // Clients send text/plain (no CORS preflight); older clients send application/json.
+    let message;
+    try { message = parseBody(req); } catch { return send(res, 400, { code: 'INVALID_MESSAGE' }); }
     if (!message || typeof message !== 'object' || Buffer.byteLength(JSON.stringify(message)) > MAX_SIGNAL_BYTES) {
       return send(res, 400, { code: 'INVALID_MESSAGE' });
     }
@@ -88,9 +99,8 @@ module.exports = async function handler(req, res) {
       if (!exactKeys(message, ['action', 'code']) || typeof message.code !== 'string' || !/^[A-Za-z0-9_-]{10,16}$/.test(message.code)) {
         return send(res, 400, { code: 'INVALID_MESSAGE' });
       }
-      const [roomValue, guest, answerValue] = await Promise.all([
-        redis(['GET', roomKey(message.code)]), redis(['GET', guestKey(message.code)]), redis(['GET', answerKey(message.code)])
-      ]);
+      // One command per poll (this endpoint is polled for minutes per invite).
+      const [roomValue, guest, answerValue] = await redis(['MGET', roomKey(message.code), guestKey(message.code), answerKey(message.code)]);
       if (!roomValue) return send(res, 404, { code: 'ROOM_EXPIRED' });
       if (!answerValue) return send(res, 200, { guestJoined: Boolean(guest) });
       await redis(['DEL', roomKey(message.code), guestKey(message.code), answerKey(message.code)]);
@@ -103,9 +113,7 @@ module.exports = async function handler(req, res) {
         !/^[A-Za-z0-9_-]{10,16}$/.test(message.code) || !validDescription(message.answer, 'answer')) {
         return send(res, 400, { code: 'INVALID_MESSAGE' });
       }
-      const [roomValue, guest] = await Promise.all([
-        redis(['GET', roomKey(message.code)]), redis(['GET', guestKey(message.code)])
-      ]);
+      const [roomValue, guest] = await redis(['MGET', roomKey(message.code), guestKey(message.code)]);
       if (!roomValue) return send(res, 404, { code: 'ROOM_EXPIRED' });
       if (!guest) return send(res, 409, { code: 'INVALID_MESSAGE' });
       await redis(['SET', answerKey(message.code), JSON.stringify(message.answer), 'EX', ROOM_TTL_SECONDS, 'NX']);

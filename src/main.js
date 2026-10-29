@@ -1,5 +1,5 @@
 import { setupModalUI } from './ui/ModalUI.js';
-import { gameState, startGame } from './GameRuntime.js';
+import { gameState, startGame, hostPlayAgain, leaveMatch } from './GameRuntime.js';
 import { setupMultiplayerLobby } from './multiplayer/LobbyUI.js';
 
 const lobby = setupMultiplayerLobby({ state: gameState, onStartMatch: match => {
@@ -12,4 +12,4 @@ const lobby = setupMultiplayerLobby({ state: gameState, onStartMatch: match => {
   document.getElementById('host-disconnect-actions').style.display = 'none';
   startGame(match);
 } });
-setupModalUI({ state: gameState, onStart: startGame, onMultiplayer: lobby.open });
+setupModalUI({ state: gameState, onStart: startGame, onMultiplayer: lobby.open, onPlayAgain: hostPlayAgain, onLeave: leaveMatch });

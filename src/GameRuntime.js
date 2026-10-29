@@ -2,7 +2,7 @@ import { GameState } from './state/GameState.js';
 import { createLocalActionAdapter, validateActionIntent } from './multiplayer/ActionSystem.js';
 import { createBoardInput } from './ui/BoardInput.js';
 import { createGameHUD } from './ui/GameHUD.js';
-import { presentVictory } from './ui/ModalUI.js';
+import { presentVictory, configureMatchEndButtons } from './ui/ModalUI.js';
 import { createUIStage } from './ui/UIStage.js';
 import { loadBGM, startBGM } from './systems/AudioSystem.js';
 import { createMainScene } from './scenes/MainScene.js';
@@ -44,6 +44,8 @@ let guestMovePhaseRunning = false;
 let guestSpawnPhaseRunning = false;
 let guestCombatPhaseRunning = false;
 let disconnectedGuestSeat = null;
+// True for the one setup that follows a finished match on the same connections.
+let reuseCoordinator = false;
 
 /* ---------------------------------------------------------------------
    Tile type descriptions
@@ -331,6 +333,7 @@ function showHostDisconnected(){
   message.textContent = 'The host disconnected. This match has ended. Restart to return to solo setup.';
   document.getElementById('guest-disconnect-actions').style.display = 'none';
   document.getElementById('host-disconnect-actions').style.display = 'flex';
+  configureMatchEndButtons('menu');
   document.getElementById('rejoin-host-btn').onclick = () => multiplayerSetup?.reopenLobby?.();
   document.getElementById('victory-modal').style.display = 'flex';
 }
@@ -342,7 +345,14 @@ function showGuestDisconnected({ seat, name }) {
   document.getElementById('victory-text').textContent = `${name} disconnected. Create a fresh invite for this seat, replace it with a CPU, or end the match.`;
   document.getElementById('host-disconnect-actions').style.display = 'none';
   document.getElementById('guest-disconnect-actions').style.display = 'flex';
+  configureMatchEndButtons('menu');
   document.getElementById('victory-modal').style.display = 'flex';
+}
+function hideDisconnectDialog() {
+  document.getElementById('guest-disconnect-actions').style.display = 'none';
+  document.getElementById('host-disconnect-actions').style.display = 'none';
+  document.getElementById('victory-modal').style.display = 'none';
+  disconnectedGuestSeat = null;
 }
 document.getElementById('replace-guest-btn').addEventListener('click', () => {
   const seat = disconnectedGuestSeat;
@@ -351,12 +361,80 @@ document.getElementById('replace-guest-btn').addEventListener('click', () => {
   localActions.cancel();
   gameState.players[seat].human = false;
   gameState.multiplayerCoordinator?.removePeer(seat);
-  document.getElementById('guest-disconnect-actions').style.display = 'none';
-  document.getElementById('host-disconnect-actions').style.display = 'none';
-  document.getElementById('victory-modal').style.display = 'none';
-  disconnectedGuestSeat = null;
+  hideDisconnectDialog();
   updateHUD();
 });
+
+/* ---------------------------------------------------------------------
+   Leaving, and playing again on the same connections
+--------------------------------------------------------------------- */
+/** Host side: a guest pressed Leave Match. Their seat becomes a CPU on the spot. */
+function handleGuestLeft(seat) {
+  const session = gameState.session;
+  if (!session?.guestLeft(seat)) return;
+  if (gameState.players[seat]) gameState.players[seat].human = false;
+  // Release a prompt the host loop is holding open for that seat; it then
+  // continues down the CPU path. Prompts for other seats are left alone.
+  if (!gameState.gameOver && localActions.current()?.playerIndex === seat) localActions.cancel();
+  if (disconnectedGuestSeat === seat) hideDisconnectDialog();
+  gameState.multiplayerCoordinator?.removePeer(seat);
+  if (gameState.gameOver) document.getElementById('match-end-note').textContent = `${session.seatName(seat)} left and will be played by the CPU.`;
+  updateHUD();
+}
+
+/**
+ * Leave a multiplayer match and return to the main menu. A guest hands their
+ * seat to the CPU; the host ending their match sends every guest to the menu.
+ * The page reload is the same teardown Restart always used.
+ */
+export async function leaveMatch({ midMatch = false } = {}) {
+  const session = gameState.session;
+  const coordinator = gameState.multiplayerCoordinator;
+  if (session?.role === 'host' && midMatch && !confirm('Leaving ends the match for every player. Leave anyway?')) return;
+  if (session && coordinator && !coordinator.closed) {
+    if (session.role === 'host') coordinator.broadcast('disconnect', { reason: 'hostEnded' });
+    else coordinator.sendTo(session.hostSeat, 'disconnect', { reason: 'leave' });
+    await sleep(200); // let the message leave before the connection is torn down
+    session.end(); // closing the peers below must not raise a "disconnected" dialog
+    coordinator.close();
+  }
+  location.reload();
+}
+
+/**
+ * Reset the match and rebuild the board without touching the connections:
+ * peers, coordinator and roster all stay, so no signaling request is needed.
+ */
+function restartMatchInPlace() {
+  if (!multiplayerSetup || !scene) return;
+  localActions.cancel();
+  pendingGuestMoveResolve?.(false);
+  pendingGuestMoveResolve = null;
+  guestMovePhaseRunning = guestSpawnPhaseRunning = guestCombatPhaseRunning = false;
+  guestVisualQueue = Promise.resolve();
+  disconnectedGuestSeat = null;
+  document.getElementById('victory-modal').style.display = 'none';
+  document.getElementById('dagger-btn').style.display = 'none';
+  document.getElementById('skip-btn').disabled = true;
+  gameState.resetMatch();
+  reuseCoordinator = true;
+  scene.scene.restart();
+}
+
+/** Host pressed Play Again on the results screen. */
+export function hostPlayAgain() {
+  const session = gameState.session;
+  const coordinator = gameState.multiplayerCoordinator;
+  if (session?.role !== 'host' || !gameState.gameOver || !coordinator || coordinator.closed) return;
+  // A guest who dropped while the results were showing is replaced by a CPU.
+  for (const entry of session.roster) {
+    if (entry.controller === 'guest' && !coordinator.peers.get(entry.seat)?.isOpen) {
+      session.guestLeft(entry.seat);
+      coordinator.removePeer(entry.seat);
+    }
+  }
+  restartMatchInPlace();
+}
 document.getElementById('retry-guest-btn').addEventListener('click', async () => {
   const seat = disconnectedGuestSeat;
   if (seat === null || !multiplayerSetup?.retryGuest) return;
@@ -495,7 +573,9 @@ const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMa
       const { role, hostSeat, localSeat, roster, matchId, peers, peer } = multiplayerSetup;
       const local = role === 'host' ? hostSeat : localSeat;
       gameState.players = COLOR_META.map((c, i) => ({ ...c, human: role === 'host' ? roster[i]?.controller !== 'cpu' : i === local, mana: 0, actionPoints: 1 }));
-      const coordinator = new SessionCoordinator({ role, matchId, localSeat: local, onMessage: async ({ seat, message }) => {
+      const reuse = reuseCoordinator && !!gameState.multiplayerCoordinator && !gameState.multiplayerCoordinator.closed;
+      reuseCoordinator = false;
+      const coordinator = reuse ? gameState.multiplayerCoordinator : new SessionCoordinator({ role, matchId, localSeat: local, onMessage: async ({ seat, message }) => {
         if (message.type === 'actionRequest' && role === 'host' && gameState.session) {
           const action = message.payload;
           const phase = gameState.session.phase;
@@ -545,8 +625,14 @@ const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMa
         }
         if (message.type === 'seatAssignment' && role === 'guest') {
           const snapshot = message.payload.snapshot;
-          if (gameState.session?.acceptSnapshot({ stateVersion: snapshot.stateVersion, state: snapshot }, state => applyHostSnapshot(state, null, { animate: false }))) gameState.session.onStatus(`Connected as ${gameState.players[local].name}. Waiting for host actions.`);
+          if (gameState.session?.acceptSnapshot({ stateVersion: snapshot.stateVersion, state: snapshot }, state => applyHostSnapshot(state, null, { animate: false }))) {
+            gameState.session.onStatus(`Connected as ${gameState.players[local].name}. Waiting for host actions.`);
+            // The host may already be waiting on this seat (a rematch can begin
+            // with the guest's turn), so start whichever phase is current.
+            startGuestSpawnPhase(); startGuestMovePhase(); startGuestCombatPhase();
+          }
         }
+        if (message.type === 'matchStarted' && role === 'guest' && gameState.gameOver && gameState.session?.ended) restartMatchInPlace();
         if ((message.type === 'snapshot' || message.type === 'actionAccepted') && role === 'guest') {
           const accepted = message.type === 'snapshot'
             ? gameState.session?.acceptSnapshot(message.payload, state => applyHostSnapshot(state))
@@ -567,7 +653,7 @@ const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMa
             pendingGuestMoveResolve?.(false);
             pendingGuestMoveResolve = null;
             // Let queued combat/mana effects finish before the result modal covers them.
-            queueGuestVisual(() => showVictory(winnerSeat));
+            queueGuestVisual(() => { if (gameState.gameOver) showVictory(winnerSeat); });
           }
         }
         if (message.type === 'actionRejected' && role === 'guest') {
@@ -578,14 +664,23 @@ const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMa
           resolve?.(false);
           gameState.session.onStatus(`Host rejected the action (${message.payload.code}).`);
         }
-        if (message.type === 'disconnect') gameState.session?.peerDisconnected(seat);
+        if (message.type === 'disconnect') {
+          if (role === 'host' && message.payload.reason === 'leave') handleGuestLeft(seat);
+          else if (role === 'guest' && message.payload.reason === 'hostEnded') location.reload();
+          else gameState.session?.peerDisconnected(seat);
+        }
       }, onPeerState: (seat, status) => {
         if (status === 'connected' && role === 'guest') coordinator.startHandshake(seat);
         if (status === 'disconnected' || status === 'failed' || status === 'closed') gameState.session?.peerDisconnected(seat);
       } });
-      if (role === 'host') for (const [seat, hostPeer] of peers) coordinator.addPeer(seat, hostPeer);
-      else coordinator.addPeer(hostSeat, peer);
-      gameState.multiplayerCoordinator = coordinator;
+      if (reuse) coordinator.resetHandshakes();
+      else {
+        if (role === 'host') for (const [seat, hostPeer] of peers) coordinator.addPeer(seat, hostPeer);
+        else coordinator.addPeer(hostSeat, peer);
+        gameState.multiplayerCoordinator = coordinator;
+        coordinator.startHeartbeat();
+      }
+      document.getElementById('restart-btn').textContent = 'Leave Match';
       gameState.session = new MatchSession({ role, localSeat: local, hostSeat, matchId, roster,
         sendTo: (seat, type, payload) => coordinator.sendTo(seat, type, payload),
         broadcast: (type, payload) => coordinator.broadcast(type, payload),
@@ -597,6 +692,7 @@ const MainScene = createMainScene({state:gameState,buildTextures,loadBGM,setupMa
       if (role === 'guest' && peer.channel?.readyState === 'open') coordinator.startHandshake(hostSeat);
     } else {
       gameState.players=COLOR_META.map((c,i)=>({...c,human:i===gameState.humanColorIndex,mana:0,actionPoints:1}));
+      document.getElementById('restart-btn').textContent = 'Restart';
       gameState.session = null;
       gameState.multiplayerCoordinator?.close();
       gameState.multiplayerCoordinator = null;

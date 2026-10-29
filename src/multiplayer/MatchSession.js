@@ -174,6 +174,22 @@ export class MatchSession {
     return true;
   }
 
+  /**
+   * A guest chose to leave. Unlike a dropped connection there is nothing to
+   * wait for: the seat is handed to the CPU right away, mid-match or on the
+   * results screen, so the next match starts with it already CPU-controlled.
+   */
+  guestLeft(seat) {
+    if (this.role !== 'host' || this.roster?.[seat]?.controller !== 'guest') return false;
+    this.roster[seat] = { ...this.roster[seat], controller: 'cpu' };
+    if (!this.ended) {
+      this.pendingRequest = null;
+      this.resumeGuest(seat);
+      this.onStatus(`${this.seatName(seat)} left and is now controlled by the CPU.`);
+    }
+    return true;
+  }
+
   endForGuestDisconnect(seat) {
     if (this.role !== 'host' || this.ended || this.roster?.[seat]?.controller !== 'guest') return false;
     this.ended = true;

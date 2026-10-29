@@ -15,4 +15,21 @@ export class GameState {
     this.session = null;
     this.stateVersion = 0;
   }
+
+  /**
+   * Clear everything that belongs to one match so another can start. Setup
+   * choices (difficulty, win score, seat) and the multiplayer transport
+   * (`multiplayer`, `multiplayerCoordinator`) are deliberately kept: players
+   * stay connected between matches.
+   */
+  resetMatch() {
+    this.tiles = new Map();
+    this.troops = [];
+    this.nextTroopId = 1;
+    this.players = [];
+    this.currentPlayerIndex = 0;
+    this.gameOver = false;
+    this.session = null;
+    this.stateVersion = 0;
+  }
 }

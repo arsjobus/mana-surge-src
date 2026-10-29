@@ -43,8 +43,12 @@ V1 types and payloads:
 - `actionRejected`: host to guest, `{ requestSeq, code }`; codes: `NOT_YOUR_SEAT`, `NOT_YOUR_TURN`, `WRONG_PHASE`, `ILLEGAL_ACTION`, `STALE_STATE`, `RATE_LIMITED`. Rejection never mutates state or consumes an action point.
 - `snapshot`: host to guest, `{ stateVersion, state, hash }`.
 - `matchEnded`: host to guest, `{ winnerSeat }`; the host ends the session and guests display the host-declared winner. Guests cannot send this message.
-- `heartbeat` and `heartbeatAck`: either direction, `{ timestamp }`; sender-local integer timestamp is informational only.
-- `disconnect`: either direction, `{ reason }`; reason is one of `leave`, `connectionLost`, `hostEnded`.
+- `heartbeat` and `heartbeatAck`: either direction, `{ timestamp }`; sender-local integer timestamp is informational only. Every peer sends a `heartbeat` every 15 seconds for the lifetime of the connection (including between matches) to keep NAT/firewall bindings open; receivers ignore it and need not reply.
+
+### Rematches
+
+Connections outlive a match. After `matchEnded`, the host's Play Again resets its game, creates a new match session (state version and request sequence start over; the per-peer message `seq` does not) and broadcasts `matchStarted` again. A guest that has already shown a result treats that `matchStarted` as a rematch: it resets its game, then repeats the `hello` / `seatAssignment` handshake to receive the host's snapshot. Guests that are no longer connected when the host starts the rematch are replaced by CPUs.
+- `disconnect`: either direction, `{ reason }`; reason is one of `leave`, `connectionLost`, `hostEnded`. A guest sends `leave` when it chooses to leave; the host replaces that seat with a CPU immediately (no retry prompt) and keeps playing. A host sends `hostEnded` to every guest when it leaves; guests return to the main menu.
 - `protocolError`: either direction, `{ code }`; code is `VERSION_MISMATCH`, `INVALID_MESSAGE`, or `MESSAGE_TOO_LARGE`, after which the peer may close the channel.
 
 Unknown fields, message types, payload fields, or versions are rejected. No message contains executable content, HTML, arbitrary error strings, or user-provided display markup. A hello with no common supported version receives `protocolError: VERSION_MISMATCH`.

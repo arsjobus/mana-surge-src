@@ -122,6 +122,26 @@ describe('Mana Surge completion checks', () => {
     cy.get('#hidden-start-overlay').should('be.visible');
   });
 
+  it('offers the right end-of-match buttons for single player, host and guest', () => {
+    cy.window().then(win => win.eval("import('/src/ui/ModalUI.js')")).then(({ presentVictory }) => {
+      const show = session => presentVictory({
+        state: { players: [{ human: true, colorHex: 0xff5757 }], winScore: 10, session },
+        pi: 0, scene: { time: { delayedCall: cy.stub() } }, cssColor: () => '#fff', coloredName: () => 'Red',
+        boardX: v => v, boardY: v => v, burst: cy.stub(), axialToPixel: () => ({ x: 0, y: 0 }), hexSize: 1
+      });
+      show(null);
+      cy.get('#playagain-btn').should('be.visible').and('have.text', 'Return to Main Menu');
+      cy.get('#leave-match-btn').should('not.be.visible');
+      cy.then(() => show({ role: 'host' }));
+      cy.get('#playagain-btn').should('be.visible').and('have.text', 'Play Again');
+      cy.get('#leave-match-btn').should('be.visible').and('have.text', 'Leave Match');
+      cy.then(() => show({ role: 'guest' }));
+      cy.get('#playagain-btn').should('not.be.visible');
+      cy.get('#leave-match-btn').should('be.visible');
+      cy.get('#match-end-note').should('contain.text', 'Waiting for the host');
+    });
+  });
+
   it('restarts into a clean start screen', () => {
     cy.get('#start-btn').click();
     cy.get('#game-container canvas').should('be.visible');

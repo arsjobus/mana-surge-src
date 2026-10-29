@@ -1,6 +1,7 @@
 import { MatchSession } from '../../src/multiplayer/MatchSession.js';
 import { decodeMessage, encodeMessage } from '../../src/multiplayer/MessageCodec.js';
 import { SessionCoordinator } from '../../src/multiplayer/SessionCoordinator.js';
+import { GameState } from '../../src/state/GameState.js';
 import { combatPhase, movePhase, playTurn } from '../../src/systems/TurnSystem.js';
 
 describe('multiplayer protocol and host authorization', () => {
@@ -263,6 +264,88 @@ describe('multiplayer protocol and host authorization', () => {
     expect(state.casualties).to.deep.equal([9]);
     expect(guest.stateVersion).to.equal(1);
     expect(updates.map(update => update.type)).to.deep.equal(['actionRequest', 'actionAccepted']);
+  });
+});
+
+describe('leaving, rematches and keepalive', () => {
+  const hostRoster = () => [
+    { seat: 0, controller: 'host', name: 'Red' },
+    { seat: 1, controller: 'guest', name: 'Blue' },
+    { seat: 2, controller: 'guest', name: 'Green' }
+  ];
+
+  it('replaces a guest who leaves with a CPU immediately, mid-match or after the match ended', async () => {
+    const roster = hostRoster();
+    const session = new MatchSession({ role: 'host', localSeat: 0, hostSeat: 0, matchId: 'match_identifier_1234', roster });
+    session.peerDisconnected(1);
+    let resumed = false;
+    const waiting = session.waitUntilResumed().then(() => { resumed = true; });
+    expect(session.guestLeft(1)).to.equal(true);
+    await waiting;
+    expect(resumed).to.equal(true);
+    expect(roster[1].controller).to.equal('cpu');
+    expect(session.guestLeft(1)).to.equal(false);
+
+    session.endForVictory(0);
+    expect(session.guestLeft(2)).to.equal(true);
+    expect(roster[2].controller).to.equal('cpu');
+  });
+
+  it('does not let a guest session hand out seats', () => {
+    const guest = new MatchSession({ role: 'guest', localSeat: 1, hostSeat: 0, matchId: 'match_identifier_1234', roster: hostRoster() });
+    expect(guest.guestLeft(1)).to.equal(false);
+  });
+
+  it('starts a clean match on the same connections without losing setup choices', () => {
+    const state = new GameState({ difficulty: 'hard', winScore: 30, humanColorIndex: 2 });
+    state.tiles.set('0,0', {});
+    state.troops.push({ id: 1 });
+    state.nextTroopId = 9;
+    state.players = [{}, {}, {}];
+    state.currentPlayerIndex = 2;
+    state.gameOver = true;
+    state.session = { role: 'host' };
+    state.multiplayerCoordinator = { closed: false };
+    state.resetMatch();
+    expect(state.tiles.size).to.equal(0);
+    expect(state.troops).to.deep.equal([]);
+    expect(state.nextTroopId).to.equal(1);
+    expect(state.players).to.deep.equal([]);
+    expect(state.currentPlayerIndex).to.equal(0);
+    expect(state.gameOver).to.equal(false);
+    expect(state.session).to.equal(null);
+    expect(state.difficulty).to.equal('hard');
+    expect(state.winScore).to.equal(30);
+    expect(state.humanColorIndex).to.equal(2);
+    expect(state.multiplayerCoordinator).to.deep.equal({ closed: false });
+  });
+
+  it('sends heartbeats on open channels, swallows them, and allows a fresh handshake per match', async () => {
+    const sent = [];
+    const peer = { send: (type, payload) => { sent.push([type, payload.timestamp]); return true; }, close: () => {} };
+    const delivered = [];
+    const coordinator = new SessionCoordinator({ role: 'host', matchId: 'match_identifier_1234', localSeat: 0, onMessage: message => delivered.push(message) });
+    coordinator.addPeer(1, peer);
+    coordinator.startHeartbeat(10);
+    await new Promise(resolve => setTimeout(resolve, 60));
+    expect(sent.length).to.be.at.least(2);
+    expect(sent.every(([type]) => type === 'heartbeat')).to.equal(true);
+    peer.onMessage({ type: 'heartbeat', payload: { timestamp: 1 } });
+    expect(delivered).to.have.length(0);
+    coordinator.helloReceived.add(1);
+    coordinator.resetHandshakes();
+    expect(coordinator.helloReceived.size).to.equal(0);
+    coordinator.close();
+    const count = sent.length;
+    await new Promise(resolve => setTimeout(resolve, 40));
+    expect(sent).to.have.length(count);
+  });
+
+  it('accepts leave and hostEnded disconnect messages', () => {
+    for (const reason of ['leave', 'hostEnded']) {
+      const message = { v: 1, matchId: 'match_identifier_1234', senderSeat: 1, seq: 1, type: 'disconnect', payload: { reason } };
+      expect(decodeMessage(encodeMessage(message), { matchId: message.matchId, senderSeat: 1 })).to.deep.equal(message);
+    }
   });
 });
 

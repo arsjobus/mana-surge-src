@@ -13,7 +13,25 @@ export class SessionCoordinator {
     this.peers = new Map();
     this.closed = false;
     this.helloReceived = new Set();
+    this.heartbeatTimer = null;
   }
+
+  /**
+   * Send a tiny heartbeat on every open channel. Players sit on result screens
+   * and in long CPU turns with no game traffic; without this, NAT/firewall
+   * bindings can time out and silently kill a connection between matches.
+   */
+  startHeartbeat(intervalMs = 15_000) {
+    if (this.heartbeatTimer || this.closed) return;
+    this.heartbeatTimer = setInterval(() => {
+      for (const peer of this.peers.values()) {
+        try { peer.send('heartbeat', { timestamp: Date.now() }); } catch { /* closed peers report through onState */ }
+      }
+    }, intervalMs);
+  }
+
+  /** A new match on the same connections starts a fresh guest handshake. */
+  resetHandshakes() { this.helloReceived.clear(); }
 
   addPeer(seat, peer) {
     if (this.closed || !Number.isInteger(seat) || seat < 0 || seat > 2 || seat === this.localSeat || this.peers.has(seat)) throw new Error('Seat is unavailable');
@@ -35,6 +53,7 @@ export class SessionCoordinator {
   }
 
   handleMessage(seat, message) {
+    if (message.type === 'heartbeat' || message.type === 'heartbeatAck') return;
     if (message.type === 'hello') {
       if (this.role !== 'host' || message.senderSeat !== null || this.helloReceived.has(seat)) {
         this.removePeer(seat);
@@ -75,6 +94,8 @@ export class SessionCoordinator {
   close() {
     if (this.closed) return;
     this.closed = true;
+    clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = null;
     for (const seat of [...this.peers.keys()]) this.removePeer(seat);
     this.onClose();
   }

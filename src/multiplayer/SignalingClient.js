@@ -1,7 +1,13 @@
 const SIGNAL_TIMEOUT_MS = 30_000;
 const INVITE_WAIT_MS = 9 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 15_000;
-const POLL_INTERVAL_MS = 700;
+// The host waits for the guest's answer by polling the relay, and every poll is a
+// serverless invocation. Poll slowly while nobody has joined (a person has to
+// receive, paste and confirm the invite first) and quickly only once a guest
+// has joined, when the answer is seconds away.
+const POLL_WAITING_MS = [[30_000, 2_000], [120_000, 4_000], [Infinity, 8_000]];
+const POLL_JOINED_MS = 1_000;
+const POLL_ERROR_BASE_MS = 1_000;
 const MAX_POLL_FAILURES = 6;
 const RETRY_BASE_MS = 400;
 
@@ -37,7 +43,9 @@ async function signalingRequestOnce(url, data) {
     try {
       response = await fetch(url, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        // A "simple" content type avoids a CORS preflight, which would otherwise
+        // double the invocation count when the game is hosted on another origin.
+        headers: { 'content-type': 'text/plain;charset=UTF-8' },
         body: JSON.stringify(data),
         signal: controller.signal
       });
@@ -114,15 +122,17 @@ export async function createSignalingInvite({ url = defaultSignalingUrl(), match
     let closed = false;
     let timer;
     const answerPromise = new Promise((resolve, reject) => {
-      const deadline = Date.now() + INVITE_WAIT_MS;
+      const startedAt = Date.now();
+      const deadline = startedAt + INVITE_WAIT_MS;
       let failures = 0;
+      let joined = false;
       const poll = async () => {
         if (closed) return reject(new Error('Invite cancelled'));
         if (Date.now() >= deadline) return reject(new SignalingError(signalingError('ROOM_EXPIRED'), { code: 'ROOM_EXPIRED' }));
         try {
           const result = await signalingRequest(url, { action: 'status', code });
           failures = 0;
-          if (result.guestJoined) reportJoined();
+          if (result.guestJoined) { joined = true; reportJoined(); }
           if (result.answer) return resolve(result);
         } catch (error) {
           // A single dropped request must not strand the host: keep polling
@@ -130,7 +140,8 @@ export async function createSignalingInvite({ url = defaultSignalingUrl(), match
           if (!error.transient || ++failures > MAX_POLL_FAILURES) return reject(error);
         }
         if (closed) return reject(new Error('Invite cancelled'));
-        timer = setTimeout(poll, failures ? Math.min(5_000, POLL_INTERVAL_MS * 2 ** failures) : POLL_INTERVAL_MS);
+        const waiting = POLL_WAITING_MS.find(([until]) => Date.now() - startedAt < until)[1];
+        timer = setTimeout(poll, failures ? Math.min(8_000, POLL_ERROR_BASE_MS * 2 ** failures) : joined ? POLL_JOINED_MS : waiting);
       };
       poll();
     });
