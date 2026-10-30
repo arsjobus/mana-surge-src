@@ -59,6 +59,27 @@ async function call(message, { contentType = 'text/plain;charset=UTF-8' } = {}) 
 
   const bad = await call({ action: 'status', code: 'x' });
   assert.equal(bad.status, 400);
+  assert.match(bad.body.reason, /code must be/, 'a 400 names the failing check');
+
+  // A 400 must say which field was wrong (JSON.stringify drops undefined fields).
+  const noScore = await call({ action: 'create', matchId: 'match_identifier_1234', hostSeat: 0, seat: 1, score: undefined, offer });
+  assert.equal(noScore.status, 400);
+  assert.match(noScore.body.reason, /missing field\(s\): score/);
+  const wrongType = await call({ action: 'create', matchId: 'match_identifier_1234', hostSeat: 0, seat: 1, score: 10, offer: answer });
+  assert.match(wrongType.body.reason, /offer\.type must be "offer"/);
+
+  // Unknown extra fields are ignored rather than rejected, and are never stored.
+  const extra = await call({ action: 'create', matchId: 'match_identifier_1234', hostSeat: 0, seat: 2, score: 20, offer, v: 2, junk: true });
+  assert.equal(extra.status, 200);
+  const extraCode = extra.body.code;
+
+  // Answering before the guest has joined is not a malformed request.
+  const early = await call({ action: 'answer', code: extraCode, answer });
+  assert.equal(early.status, 409);
+  assert.equal(early.body.code, 'NOT_JOINED');
+  const room = JSON.parse(store.get(`mana-surge:room:${extraCode}`));
+  assert.deepEqual(Object.keys(room).sort(), ['hostSeat', 'matchId', 'offer', 'score', 'seat']);
+  assert.equal((await call({ action: 'close', code: extraCode })).status, 200);
   const garbage = await handler({ method: 'POST', url: '/api/signaling', body: '{not json' }, { setHeader() {}, end() {} });
   console.log('api signaling ok');
 })().catch(error => { console.error(error); process.exit(1); });

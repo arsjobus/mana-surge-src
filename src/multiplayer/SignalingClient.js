@@ -15,11 +15,13 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 /** `transient` errors (network blips, 5xx) are safe to retry; the rest are final. */
 class SignalingError extends Error {
-  constructor(message, { code = null, transient = false } = {}) {
+  constructor(message, { code = null, transient = false, reason = '', status = 0 } = {}) {
     super(message);
     this.name = 'SignalingError';
     this.code = code;
     this.transient = transient;
+    this.reason = reason;
+    this.status = status;
   }
 }
 
@@ -36,6 +38,12 @@ function isHttpSignalingUrl(url) {
 }
 
 async function signalingRequestOnce(url, data) {
+  // JSON.stringify silently drops `undefined` fields, which the relay would then
+  // reject as a bare 400. Catch that here, where the culprit is still known.
+  const missing = Object.keys(data).filter(key => data[key] === undefined);
+  if (missing.length) {
+    throw new SignalingError(`${signalingError('INVALID_MESSAGE')} (missing ${missing.join(', ')})`, { code: 'INVALID_MESSAGE' });
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
@@ -56,7 +64,13 @@ async function signalingRequestOnce(url, data) {
     let result;
     try { result = await response.json(); }
     catch { throw new SignalingError('Signaling service sent invalid data.', { code: 'BAD_RESPONSE', transient: retryable }); }
-    if (!response.ok) throw new SignalingError(signalingError(result?.code), { code: result?.code ?? null, transient: retryable });
+    if (!response.ok) {
+      const reason = typeof result?.reason === 'string' ? result.reason : '';
+      console.warn(`Signaling "${data.action}" failed: HTTP ${response.status} ${result?.code ?? ''}${reason ? ` - ${reason}` : ''}`);
+      // NOT_JOINED: the guest's join claim is not readable yet (storage replica lag).
+      throw new SignalingError(signalingError(result?.code, reason), { code: result?.code ?? null, reason, status: response.status,
+        transient: retryable || result?.code === 'NOT_JOINED' });
+    }
     return result;
   } finally {
     clearTimeout(timer);
@@ -105,8 +119,10 @@ function receive(socket, expected, onMessage = () => {}, timeoutMs = SIGNAL_TIME
   });
 }
 
-function signalingError(code) {
-  return ({ ROOM_FULL: 'That invite has already been used.', ROOM_EXPIRED: 'That invite is invalid or expired.', INVALID_MESSAGE: 'The signaling service rejected the connection.', SIGNALING_UNAVAILABLE: 'The signaling service is temporarily unavailable.' })[code] || 'Signaling failed.';
+function signalingError(code, reason = '') {
+  const base = ({ ROOM_FULL: 'That invite has already been used.', ROOM_EXPIRED: 'That invite is invalid or expired.', INVALID_MESSAGE: 'The signaling service rejected the connection.',
+    NOT_JOINED: 'The invite has not been claimed yet.', SIGNALING_UNAVAILABLE: 'The signaling service is temporarily unavailable.' })[code] || 'Signaling failed.';
+  return reason && code === 'INVALID_MESSAGE' ? `${base} (${reason})` : base;
 }
 
 export async function createSignalingInvite({ url = defaultSignalingUrl(), matchId, hostSeat, seat, score, offer, onStatus = () => {}, onGuestJoined = () => {} }) {
