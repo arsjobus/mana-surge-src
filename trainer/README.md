@@ -137,6 +137,14 @@ and `reinforceBonus` both evolving *above* their seeded starting values,
 meaning self-play found defending/garrisoning shrines even more valuable
 than the initial guess.
 
+Action shrines also receive an additional early-game investment bonus:
+their extra action points can be used repeatedly while the match is young,
+so the AI is more willing to claim one before focusing exclusively on
+immediate mana. The existing `extraAction` gene scales both its tile value
+and this future-action bonus. Separately, a sacrifice that wins immediately
+is chosen before ordinary moves or attacks; non-winning sacrifices still
+follow the existing troop-surplus and closing thresholds.
+
 
 If you add a new tunable heuristic to the CPU AI later, the pattern is:
 

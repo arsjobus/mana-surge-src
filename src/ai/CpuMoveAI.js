@@ -12,9 +12,13 @@ export function scoreMoveTarget(context, troop, target, pi, lockedAllies) {
   const tile = getTile(target.q, target.r);
   let score = 0;
   score += (hexDistance(troop, { q: 0, r: 0 }) - hexDistance(target, { q: 0, r: 0 })) * w.centerPull;
-  const economyFactor = 1 - progress(state) * w.economyDecay;
+  const gameProgress = progress(state);
+  const economyFactor = 1 - gameProgress * w.economyDecay;
   if (tile.type === 'mana_pool') score += w.manaPool;
-  if (tile.type === 'extra_action') score += w.extraAction * economyFactor;
+  if (tile.type === 'extra_action') {
+    score += w.extraAction * economyFactor;
+    score += w.extraAction * (1 - gameProgress);
+  }
   if (tile.type === 'extra_spawn') score += w.extraSpawn * economyFactor;
   if (tile.type === 'dagger') score += w.dagger;
   if (tile.type === 'atk_plus') score += w.atkPlus;

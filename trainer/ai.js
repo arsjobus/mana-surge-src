@@ -135,9 +135,13 @@ function scoreMoveTarget(game, troop, target, pi, w, myLockedAllies){
   const curDist = hexDistance(troop, {q:0,r:0});
   const newDist = hexDistance(target, {q:0,r:0});
   score += (curDist - newDist) * w.centerPull;
-  const economyFactor = 1 - gameProgress(game)*w.economyDecay;
+  const progress = gameProgress(game);
+  const economyFactor = 1 - progress*w.economyDecay;
   if(tile.type==='mana_pool') score += w.manaPool;
-  if(tile.type==='extra_action') score += w.extraAction * economyFactor;
+  if(tile.type==='extra_action'){
+    score += w.extraAction * economyFactor;
+    score += w.extraAction * (1 - progress);
+  }
   if(tile.type==='extra_spawn') score += w.extraSpawn * economyFactor;
   if(tile.type==='dagger') score += w.dagger;
   if(tile.type==='atk_plus') score += w.atkPlus;
@@ -262,9 +266,14 @@ function shouldUseDagger(game, pi, w){
   return hasSurplus || closingPush;
 }
 
+function canWinWithDagger(game, pi){
+  return game.daggerAvailable(pi) && game.players[pi].mana + 1 >= game.winScore;
+}
+
 // --- Decision trees (same priority order as CPU_MOVE_TREE / CPU_COMBAT_TREE) ---
 function decideMoveAction(game, pi, isPreCombat, w, rng){
   const p = game.players[pi];
+  if(canWinWithDagger(game, pi)) return {type:'sacrifice'};
   const bestMove = chooseMove(game, pi, w, rng);
   if(isPreCombat && p.actionPoints<=1){
     const pendingAttack = chooseAttack(game, pi, w, rng);
@@ -280,6 +289,7 @@ function decideMoveAction(game, pi, isPreCombat, w, rng){
 }
 
 function decideCombatAction(game, pi, w, rng){
+  if(canWinWithDagger(game, pi)) return {type:'sacrifice'};
   const bestAttack = chooseAttack(game, pi, w, rng);
   if(bestAttack) return {type:'attack', attacker:bestAttack.attacker, defender:bestAttack.defender};
   if(game.daggerAvailable(pi) && shouldUseDagger(game, pi, w)) return {type:'sacrifice'};
@@ -288,6 +298,6 @@ function decideCombatAction(game, pi, w, rng){
 
 module.exports = {
   DEFAULT_WEIGHTS, GENE_BOUNDS,
-  scoreMoveTarget, chooseMove, chooseAttack, shouldUseDagger,
+  scoreMoveTarget, chooseMove, chooseAttack, shouldUseDagger, canWinWithDagger,
   decideMoveAction, decideCombatAction
 };

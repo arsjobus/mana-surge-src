@@ -286,6 +286,7 @@ function startGuestCombatPhase(){
 function ruleContext(){return {players:()=>gameState.players,troops:()=>gameState.troops,tiles:()=>gameState.tiles,countTiles,getTile,isLocked,getStats,isEmptyTile,neighbors,sleep,log,coloredName,cssColor,createTroop,destroyTroop,waitFor,validateIntent,updateHUD,document,hexSize:HEX_SIZE,axialToPixel:(q,r)=>axialToPixel(q,r,HEX_SIZE),boardX,boardY,burst,winScore:gameState.winScore,setGameOver:value=>{gameState.gameOver=value;},showVictory:pi=>{gameState.session?.endForVictory(pi);showVictory(pi);},weights:AIW,cpuChooseSpawnTile:(_pi,options)=>chooseCpuSpawnTile({getTile},options),waitForSpawn:chooseSpawnTileHuman,hasLegalMove,hasLegalAttack,daggerAvailable,gameOver:()=>gameState.gameOver,performSacrifice,executeMove,executeAttack,clearHighlights,waitUntilResumed:()=>gameState.session?.waitUntilResumed(),multiplayerRole:gameState.session?.role,requestGuestMove,requestGuestCombat,requestGuestSacrifice,requestGuestSacrificeCancel,publishState:()=>{const session=gameState.session;if(session?.role==='host')session.publishSnapshot(session.createSnapshot(gameState));},actionApplied:action=>{const session=gameState.session;if(session?.role==='host')session.publishAccepted(action,{type:action.type},session.createSnapshot(gameState));},setDecision:(seat,phase)=>{const session=gameState.session;if(!session)return;session.setDecision({seat,phase});if(session.role==='host')session.publishSnapshot(session.createSnapshot(gameState));},moveDecision:(pi,isPreCombat)=>CPU_MOVE_TREE({pi,isPreCombat}),combatDecision:pi=>CPU_COMBAT_TREE({pi})};}
 function daggerAvailable(pi){return combatDaggerAvailable({countTiles,troops:()=>gameState.troops},pi);}
 function cpuShouldUseDagger(pi){return aiShouldUseDagger({players:gameState.players,troops:gameState.troops,weights:AIW()},pi);}
+function cpuCanWinWithDagger(pi){return daggerAvailable(pi) && gameState.players[pi].mana + 1 >= gameState.winScore;}
 
 /* ---------------------------------------------------------------------
    Background music
@@ -505,6 +506,7 @@ const chooseMove = (pi) => cpuChooseMove(aiContext(), pi);
 const chooseAttack = (pi) => cpuChooseAttack(aiContext(), pi);
 const UNMISSABLE_CLAIM_TYPES = ['mana_pool','extra_action','extra_spawn','dagger'];
 const CPU_MOVE_TREE = Selector(
+  Sequence(Condition(bb => cpuCanWinWithDagger(bb.pi)), Action(() => ({type:'sacrifice'}))),
   Sequence(
     Condition(bb => bb.isPreCombat && gameState.players[bb.pi].actionPoints <= 1),
     Condition(bb => { bb.pendingAttack = chooseAttack(bb.pi); return !!bb.pendingAttack; }),
@@ -524,6 +526,7 @@ const CPU_MOVE_TREE = Selector(
   Action(() => ({type:'pass'}))
 );
 const CPU_COMBAT_TREE = Selector(
+  Sequence(Condition(bb => cpuCanWinWithDagger(bb.pi)), Action(() => ({type:'sacrifice'}))),
   Sequence(Condition(bb => { bb.bestAttack = chooseAttack(bb.pi); return !!bb.bestAttack; }),
     Action(bb => ({type:'attack', attacker:bb.bestAttack.attacker, defender:bb.bestAttack.defender}))),
   Sequence(Condition(bb => daggerAvailable(bb.pi)), Condition(bb => cpuShouldUseDagger(bb.pi)), Action(() => ({type:'sacrifice'}))),
