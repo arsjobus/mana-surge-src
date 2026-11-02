@@ -29,6 +29,15 @@ describe('Mana Surge completion checks', () => {
     });
   });
 
+  it('uses the slider value at match start even if its last input event was missed', () => {
+    cy.get('#winscore-slider').invoke('val', '20');
+    cy.get('#start-btn').click();
+    cy.get('#game-container canvas').should('be.visible');
+    cy.get('.mana-row .mr-count').each(($count) => {
+      cy.wrap($count).should('have.text', '0 / 20');
+    });
+  });
+
   it('opens and closes help and credits from the start screen', () => {
     cy.get('#rules-btn').click();
     cy.get('#help-modal').should('be.visible');
